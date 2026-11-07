@@ -1,0 +1,24 @@
+# gradle and build output
+.gradle/
+build/
+.kotlin/
+captures/
+*.apk
+*.aab
+
+# local machine config, may contain sdk paths
+local.properties
+
+# secrets: signing keys and environment files must never be committed
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+.env
+.env.*
+
+# ide
+.idea/
+*.iml
+.vscode/
+.DS_Store
