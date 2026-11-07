@@ -9,6 +9,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
+import android.content.pm.ShortcutInfo
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
@@ -27,6 +28,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -61,6 +63,15 @@ class AppsRepository @Inject constructor(
 
     /** packages whose resources changed, so icon caches can drop stale bitmaps */
     val packageChanges: SharedFlow<Set<String>> = changedPackages.asSharedFlow()
+
+    private val changedShortcuts = MutableSharedFlow<Unit>(
+        replay = 1,
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /** fires whenever any app publishes, updates or removes shortcuts, or apps change */
+    val shortcutChanges: SharedFlow<Unit> = changedShortcuts.asSharedFlow()
 
     /** null until the first load finishes, which lets the ui tell "loading" from "no apps" */
     val apps: StateFlow<List<AppInfo>?> = systemChangeSignals()
@@ -104,6 +115,27 @@ class AppsRepository @Inject constructor(
             LaunchResult.Started
         } catch (e: RuntimeException) {
             Log.w(TAG, "app details failed for ${key.packageName}", e)
+            LaunchResult.Failed(e)
+        }
+    }
+
+    /** false for preinstalled apps, which can only be disabled from settings rather than removed */
+    fun canUninstall(key: AppKey): Boolean {
+        val info = activityInfo(key) ?: return false
+        return info.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM == 0
+    }
+
+    /** opens the system uninstall confirmation; the user always sees and approves it there */
+    fun requestUninstall(key: AppKey): LaunchResult {
+        val user = userFor(key.userSerial) ?: return LaunchResult.Failed(IllegalStateException("profile is gone"))
+        val intent = Intent(Intent.ACTION_DELETE, Uri.fromParts("package", key.packageName, null))
+            .putExtra(Intent.EXTRA_USER, user)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return try {
+            context.startActivity(intent)
+            LaunchResult.Started
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "uninstall request failed for ${key.packageName}", e)
             LaunchResult.Failed(e)
         }
     }
@@ -156,8 +188,17 @@ class AppsRepository @Inject constructor(
             override fun onPackagesSuspended(names: Array<out String>, user: UserHandle) = changed(names.toSet())
             override fun onPackagesUnsuspended(names: Array<out String>, user: UserHandle) = changed(names.toSet())
 
+            override fun onShortcutsChanged(
+                packageName: String,
+                shortcuts: MutableList<ShortcutInfo>,
+                user: UserHandle,
+            ) {
+                changedShortcuts.tryEmit(Unit)
+            }
+
             private fun changed(names: Set<String>) {
                 changedPackages.tryEmit(names)
+                changedShortcuts.tryEmit(Unit)
                 trySend(Unit)
             }
         }

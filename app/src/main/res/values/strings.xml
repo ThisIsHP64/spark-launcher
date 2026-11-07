@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Spark Launcher</string>
+    <string name="add_shortcut_title">Add to home screen?</string>
+    <string name="add_shortcut_confirm">Add</string>
+    <string name="add_shortcut_cancel">Cancel</string>
+    <string name="add_shortcut_added">Added to home screen</string>
+    <string name="add_shortcut_already">Already on the home screen</string>
+    <string name="add_shortcut_no_space">No room on the home screen</string>
+    <string name="add_shortcut_failed">Could not add this shortcut</string>
 </resources>

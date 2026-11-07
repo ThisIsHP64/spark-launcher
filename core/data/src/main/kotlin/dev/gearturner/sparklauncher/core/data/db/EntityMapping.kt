@@ -22,7 +22,8 @@ internal fun WorkspaceItemEntity.toModelOrNull(): WorkspaceItem? {
         null
     }
     if (itemType == ItemType.APP && app == null) return null
-    return WorkspaceItem(id, itemType, itemContainer, placement, app, customTitle)
+    if (itemType == ItemType.SHORTCUT && (app == null || shortcutId.isNullOrEmpty())) return null
+    return WorkspaceItem(id, itemType, itemContainer, placement, app, customTitle, shortcutId)
 }
 
 internal fun WorkspaceItem.toEntity(): WorkspaceItemEntity = WorkspaceItemEntity(
@@ -43,4 +44,5 @@ internal fun WorkspaceItem.toEntity(): WorkspaceItemEntity = WorkspaceItemEntity
     className = app?.className,
     userSerial = app?.userSerial,
     customTitle = customTitle,
+    shortcutId = shortcutId,
 )

@@ -9,4 +9,5 @@ android {
 dependencies {
     implementation(project(":core:apps"))
     implementation(project(":core:icons"))
+    implementation(libs.compose.material.icons.extended)
 }

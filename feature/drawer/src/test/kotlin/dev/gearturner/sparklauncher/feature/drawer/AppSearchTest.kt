@@ -39,4 +39,14 @@ class AppSearchTest {
         val apps = listOf(app("A"), app("B"))
         assertEquals(apps, filterApps(apps, "   "))
     }
+
+    @Test
+    fun hiddenAppsOnlyAppearInSearch() {
+        val entries = listOf(
+            DrawerEntry(app("Bank"), hidden = true, renamed = false),
+            DrawerEntry(app("Browser"), hidden = false, renamed = false),
+        )
+        assertEquals(listOf("Browser"), visibleEntries(entries, "").map { it.app.label })
+        assertEquals(listOf("Bank"), visibleEntries(entries, "ban").map { it.app.label })
+    }
 }

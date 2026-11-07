@@ -7,6 +7,7 @@ import dev.gearturner.sparklauncher.core.model.AppKey
 import dev.gearturner.sparklauncher.core.model.CellPlacement
 import dev.gearturner.sparklauncher.core.model.Container
 import dev.gearturner.sparklauncher.core.model.ItemType
+import dev.gearturner.sparklauncher.core.model.ShortcutKey
 import dev.gearturner.sparklauncher.core.model.WorkspaceItem
 import dev.gearturner.sparklauncher.core.model.findFirstFreePlacement
 import javax.inject.Inject
@@ -53,5 +54,46 @@ class WorkspaceRepository @Inject constructor(
         dao.insertAll(rows)
     }
 
-    suspend fun remove(itemId: Long) = dao.delete(itemId)
+    /** returns the removed item so callers can release anything it held, such as a pinned shortcut */
+    suspend fun remove(itemId: Long): WorkspaceItem? = placementLock.withLock {
+        val item = dao.getById(itemId)?.toModelOrNull()
+        dao.delete(itemId)
+        item
+    }
+
+    /** a blank title clears the rename so the app's name shows again */
+    suspend fun rename(itemId: Long, title: String?) = placementLock.withLock {
+        val row = dao.getById(itemId) ?: return@withLock
+        dao.update(row.copy(customTitle = title?.trim()?.take(MAX_TITLE_LENGTH)?.ifEmpty { null }))
+    }
+
+    /** the label is stored as the title so the shortcut stays readable while its app is unavailable */
+    suspend fun addShortcutToDesktop(shortcut: ShortcutKey, owner: AppKey, label: String?, columns: Int, rows: Int): AddResult =
+        placementLock.withLock {
+            val existing = dao.getAll().mapNotNull { it.toModelOrNull() }
+            if (existing.any { it.shortcutKey == shortcut }) return@withLock AddResult.AlreadyOnHome
+            val desktop = existing.filter { it.container == Container.Desktop }.map { it.placement }
+            val placement = findFirstFreePlacement(columns, rows, desktop) ?: return@withLock AddResult.NoSpace
+            val item = WorkspaceItem(
+                id = 0,
+                type = ItemType.SHORTCUT,
+                container = Container.Desktop,
+                placement = placement,
+                app = owner,
+                customTitle = label?.take(MAX_TITLE_LENGTH),
+                shortcutId = shortcut.shortcutId,
+            )
+            AddResult.Added(item.copy(id = dao.insert(item.toEntity())))
+        }
+
+    /** every shortcut id still placed for a package, which is the set the system should keep pinned */
+    suspend fun pinnedShortcutIds(packageName: String, userSerial: Long): Set<String> =
+        dao.getAll().mapNotNull { it.toModelOrNull()?.shortcutKey }
+            .filter { it.packageName == packageName && it.userSerial == userSerial }
+            .map { it.shortcutId }
+            .toSet()
+
+    companion object {
+        const val MAX_TITLE_LENGTH = 48
+    }
 }

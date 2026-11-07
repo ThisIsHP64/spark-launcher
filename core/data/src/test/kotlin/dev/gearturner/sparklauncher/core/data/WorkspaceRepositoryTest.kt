@@ -7,6 +7,7 @@ import dev.gearturner.sparklauncher.core.data.db.WorkspaceItemEntity
 import dev.gearturner.sparklauncher.core.model.AppKey
 import dev.gearturner.sparklauncher.core.model.CellPlacement
 import dev.gearturner.sparklauncher.core.model.Container
+import dev.gearturner.sparklauncher.core.model.ShortcutKey
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -80,9 +81,32 @@ class WorkspaceRepositoryTest {
     }
 
     @Test
-    fun removeDeletesTheRow() = runTest {
+    fun removeDeletesTheRowAndReturnsIt() = runTest {
         val added = repository.addAppToDesktop(app("gone"), 4, 5) as AddResult.Added
-        repository.remove(added.item.id)
+        assertEquals(added.item.id, repository.remove(added.item.id)?.id)
         assertTrue(repository.isEmpty())
+    }
+
+    @Test
+    fun renameTrimsAndBlankClears() = runTest {
+        val added = repository.addAppToDesktop(app("a"), 4, 5) as AddResult.Added
+        repository.rename(added.item.id, "  Notes ")
+        assertEquals("Notes", repository.items.first().single().customTitle)
+        repository.rename(added.item.id, " ")
+        assertEquals(null, repository.items.first().single().customTitle)
+    }
+
+    @Test
+    fun shortcutsAreTrackedAsThePinnedSetForTheirPackage() = runTest {
+        val owner = app("maps")
+        val home = ShortcutKey(owner.packageName, "home", 0)
+        val work = ShortcutKey(owner.packageName, "work", 0)
+        repository.addShortcutToDesktop(home, owner, "Home", 4, 5)
+        repository.addShortcutToDesktop(work, owner, "Work", 4, 5)
+        assertEquals(AddResult.AlreadyOnHome, repository.addShortcutToDesktop(home, owner, "Home", 4, 5))
+        assertEquals(setOf("home", "work"), repository.pinnedShortcutIds(owner.packageName, 0))
+        val shortcutItem = repository.items.first().first { it.shortcutKey == home }
+        repository.remove(shortcutItem.id)
+        assertEquals(setOf("work"), repository.pinnedShortcutIds(owner.packageName, 0))
     }
 }

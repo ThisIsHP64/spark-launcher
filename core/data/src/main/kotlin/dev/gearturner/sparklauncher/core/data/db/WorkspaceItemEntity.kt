@@ -24,6 +24,7 @@ data class WorkspaceItemEntity(
     @ColumnInfo(name = "class_name") val className: String? = null,
     @ColumnInfo(name = "user_serial") val userSerial: Long? = null,
     @ColumnInfo(name = "custom_title") val customTitle: String? = null,
+    @ColumnInfo(name = "shortcut_id") val shortcutId: String? = null,
 )
 
 internal object ContainerNames {

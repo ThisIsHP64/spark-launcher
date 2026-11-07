@@ -6,10 +6,13 @@ plugins {
 
 android {
     namespace = "dev.gearturner.sparklauncher.core.data"
+    // migration tests read the exported schemas, so every past version stays verifiable
+    sourceSets.getByName("test").assets.directories.add("$projectDir/schemas")
 }
 
 dependencies {
     api(project(":core:model"))
+    implementation(project(":core:apps"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
@@ -20,6 +23,7 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.androidx.test.runner)
 }
 
 // exported schemas are committed so future migrations can be generated and tested against them

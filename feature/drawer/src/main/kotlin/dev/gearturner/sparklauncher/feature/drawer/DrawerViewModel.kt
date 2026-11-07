@@ -6,10 +6,16 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gearturner.sparklauncher.core.apps.AppsRepository
 import dev.gearturner.sparklauncher.core.apps.LaunchRequest
 import dev.gearturner.sparklauncher.core.apps.LaunchResult
+import dev.gearturner.sparklauncher.core.apps.ShortcutsRepository
 import dev.gearturner.sparklauncher.core.data.AddResult
+import dev.gearturner.sparklauncher.core.data.AppOverridesRepository
 import dev.gearturner.sparklauncher.core.data.SettingsRepository
+import dev.gearturner.sparklauncher.core.data.ShortcutPlacement
 import dev.gearturner.sparklauncher.core.data.WorkspaceRepository
 import dev.gearturner.sparklauncher.core.model.AppInfo
+import dev.gearturner.sparklauncher.core.model.AppKey
+import dev.gearturner.sparklauncher.core.model.AppOverride
+import dev.gearturner.sparklauncher.core.model.AppShortcut
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -21,14 +27,20 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/** an app as the drawer shows it, with any rename already applied */
+data class DrawerEntry(
+    val app: AppInfo,
+    val hidden: Boolean,
+    val renamed: Boolean,
+)
+
 data class DrawerUiState(
     val query: String = "",
-    val apps: List<AppInfo> = emptyList(),
+    val entries: List<DrawerEntry> = emptyList(),
     val settings: LauncherSettings = LauncherSettings(),
 )
 
@@ -40,6 +52,9 @@ sealed interface DrawerEvent {
 @HiltViewModel
 class DrawerViewModel @Inject constructor(
     private val apps: AppsRepository,
+    private val shortcuts: ShortcutsRepository,
+    private val shortcutPlacement: ShortcutPlacement,
+    private val overrides: AppOverridesRepository,
     private val workspace: WorkspaceRepository,
     private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
@@ -48,11 +63,14 @@ class DrawerViewModel @Inject constructor(
     private val events = Channel<DrawerEvent>(Channel.BUFFERED)
     val oneShotEvents: Flow<DrawerEvent> = events.receiveAsFlow()
 
-    // sorting once per app list change keeps typing in the search field cheap
-    private val sortedApps = apps.apps.filterNotNull().map { sortApps(it) }.flowOn(Dispatchers.Default)
+    // renames change sort order, so sorting happens after overrides apply but not on every keystroke
+    private val sortedEntries = combine(apps.apps.filterNotNull(), overrides.overrides) { installed, appOverrides ->
+        val labeled = installed.map { app -> app.copy(label = appOverrides[app.key]?.customLabel ?: app.label) }
+        sortApps(labeled).map { app -> app.toEntry(appOverrides[app.key]) }
+    }.flowOn(Dispatchers.Default)
 
-    val state: StateFlow<DrawerUiState> = combine(sortedApps, query, settingsRepository.settings) { sorted, q, s ->
-        DrawerUiState(query = q, apps = filterApps(sorted, q), settings = s)
+    val state: StateFlow<DrawerUiState> = combine(sortedEntries, query, settingsRepository.settings) { sorted, q, s ->
+        DrawerUiState(query = q, entries = visibleEntries(sorted, q), settings = s)
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DrawerUiState())
 
@@ -61,15 +79,19 @@ class DrawerViewModel @Inject constructor(
         query.value = value.take(MAX_QUERY_LENGTH)
     }
 
-    fun clearQuery() {
-        query.value = ""
-    }
-
     fun launch(app: AppInfo, request: LaunchRequest) {
         if (apps.launch(app.key, request) is LaunchResult.Failed) {
             events.trySend(DrawerEvent.LaunchFailed(app.label))
         }
     }
+
+    fun launchShortcut(shortcut: AppShortcut, request: LaunchRequest) {
+        if (shortcuts.launch(shortcut.key, request) is LaunchResult.Failed) {
+            events.trySend(DrawerEvent.LaunchFailed(shortcut.shortLabel))
+        }
+    }
+
+    suspend fun menuShortcuts(app: AppInfo): List<AppShortcut> = shortcuts.menuShortcuts(app.key)
 
     fun openAppInfo(app: AppInfo, request: LaunchRequest) {
         apps.openAppDetails(app.key, request)
@@ -83,7 +105,46 @@ class DrawerViewModel @Inject constructor(
         }
     }
 
+    fun pinShortcut(shortcut: AppShortcut, owner: AppKey) {
+        viewModelScope.launch {
+            val settings = settingsRepository.current()
+            val result = shortcutPlacement.addToHome(shortcut, owner, settings.homeColumns, settings.homeRows)
+            events.send(DrawerEvent.AddedToHome(result))
+        }
+    }
+
+    fun setHidden(app: AppInfo, hidden: Boolean) {
+        viewModelScope.launch { overrides.setHidden(app.key, hidden) }
+    }
+
+    /** drawer renames apply to the app everywhere, unlike renaming a single home icon */
+    fun rename(app: AppInfo, label: String?) {
+        viewModelScope.launch { overrides.setLabel(app.key, label) }
+    }
+
+    fun canUninstall(app: AppInfo): Boolean = apps.canUninstall(app.key)
+
+    fun uninstall(app: AppInfo) {
+        apps.requestUninstall(app.key)
+    }
+
     private companion object {
         const val MAX_QUERY_LENGTH = 64
     }
+}
+
+private fun AppInfo.toEntry(override: AppOverride?) = DrawerEntry(
+    app = this,
+    hidden = override?.hidden == true,
+    renamed = override?.customLabel != null,
+)
+
+/**
+ * hidden apps leave the list but still answer a search, which is how they are found and unhidden
+ * without a separate settings screen.
+ */
+internal fun visibleEntries(sorted: List<DrawerEntry>, query: String): List<DrawerEntry> {
+    if (query.isBlank()) return sorted.filterNot { it.hidden }
+    val byKey = sorted.associateBy { it.app.key }
+    return filterApps(sorted.map { it.app }, query).mapNotNull { byKey[it.key] }
 }

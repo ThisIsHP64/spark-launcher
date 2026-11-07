@@ -4,6 +4,10 @@
     <string name="drawer_clear_search">Clear search</string>
     <string name="drawer_add_to_home">Add to home screen</string>
     <string name="drawer_app_info">App info</string>
+    <string name="drawer_rename">Rename</string>
+    <string name="drawer_hide">Hide from drawer</string>
+    <string name="drawer_unhide">Show in drawer</string>
+    <string name="drawer_uninstall">Uninstall</string>
     <string name="drawer_added">Added to home screen</string>
     <string name="drawer_already_added">Already on the home screen</string>
     <string name="drawer_no_space">No room on the home screen</string>

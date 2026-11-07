@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import dev.gearturner.sparklauncher.core.icons.IconRepository
 import dev.gearturner.sparklauncher.core.icons.IconRequest
 import dev.gearturner.sparklauncher.core.model.AppKey
+import dev.gearturner.sparklauncher.core.model.IconSource
 
 /** provided once by the activity so every icon in the tree shares one cache */
 val LocalIconRepository = staticCompositionLocalOf<IconRepository> {
@@ -60,11 +61,15 @@ enum class LabelStyle {
 }
 
 @Composable
-fun rememberAppIcon(key: AppKey, size: Dp, cornerRadiusPercent: Int): ImageBitmap? {
+fun rememberAppIcon(key: AppKey, size: Dp, cornerRadiusPercent: Int): ImageBitmap? =
+    rememberIcon(IconSource.App(key), size, cornerRadiusPercent)
+
+@Composable
+fun rememberIcon(source: IconSource, size: Dp, cornerRadiusPercent: Int): ImageBitmap? {
     val repository = LocalIconRepository.current
     val sizePx = with(LocalDensity.current) { size.roundToPx() }
     val generation by repository.generation.collectAsState()
-    val request = remember(key, sizePx, cornerRadiusPercent) { IconRequest(key, sizePx, cornerRadiusPercent) }
+    val request = remember(source, sizePx, cornerRadiusPercent) { IconRequest(source, sizePx, cornerRadiusPercent) }
     // seeding from the cache avoids a blank frame when scrolling back to icons already rendered
     val initial = remember(request, generation) { repository.cached(request)?.asImageBitmap() }
     return produceState(initial, request, generation) {
@@ -75,7 +80,7 @@ fun rememberAppIcon(key: AppKey, size: Dp, cornerRadiusPercent: Int): ImageBitma
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppIcon(
-    appKey: AppKey,
+    source: IconSource,
     label: String,
     iconSize: Dp,
     cornerRadiusPercent: Int,
@@ -86,7 +91,7 @@ fun AppIcon(
     modifier: Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
-    val bitmap = rememberAppIcon(appKey, iconSize, cornerRadiusPercent)
+    val bitmap = rememberIcon(source, iconSize, cornerRadiusPercent)
     SideEffect { anchor.icon = bitmap }
     Column(
         modifier = modifier

@@ -22,9 +22,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,7 +40,17 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Info
+import dev.gearturner.sparklauncher.core.data.AddResult
 import dev.gearturner.sparklauncher.core.ui.AppIcon
+import dev.gearturner.sparklauncher.core.ui.ItemMenu
+import dev.gearturner.sparklauncher.core.ui.LaunchAnchor
+import dev.gearturner.sparklauncher.core.ui.MenuAction
+import dev.gearturner.sparklauncher.core.ui.RenameDialog
 import dev.gearturner.sparklauncher.core.ui.BaseIconSize
 import dev.gearturner.sparklauncher.core.ui.DrawerController
 import dev.gearturner.sparklauncher.core.ui.HomeIconRegistry
@@ -72,6 +79,17 @@ fun HomeScreen(
                 is HomeEvent.LaunchFailed -> Toast.makeText(
                     context,
                     resources.getString(R.string.workspace_launch_failed, event.label),
+                    Toast.LENGTH_SHORT,
+                ).show()
+                is HomeEvent.ShortcutAdded -> Toast.makeText(
+                    context,
+                    resources.getString(
+                        when (event.result) {
+                            is AddResult.Added -> R.string.workspace_shortcut_added
+                            AddResult.AlreadyOnHome -> R.string.workspace_already_added
+                            AddResult.NoSpace -> R.string.workspace_no_space
+                        },
+                    ),
                     Toast.LENGTH_SHORT,
                 ).show()
             }
@@ -213,11 +231,14 @@ private fun HomeItem(
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
     val anchor = rememberLaunchAnchor()
-    RegisterHomeIcon(cell.itemId, cell.app.key, registryPage, anchor)
+    // only real app icons are close animation targets; a shortcut is not where its app lives
+    if (cell.shortcut == null) RegisterHomeIcon(cell.itemId, cell.app.key, registryPage, anchor)
+    val actions = homeItemActions(cell, viewModel, anchor, onRename = { renaming = true })
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         AppIcon(
-            appKey = cell.app.key,
+            source = cell.iconSource,
             label = cell.title,
             iconSize = iconSize,
             cornerRadiusPercent = cornerRadiusPercent,
@@ -226,21 +247,47 @@ private fun HomeItem(
             onClick = { viewModel.launch(cell, anchor.request()) },
             onLongClick = { menuOpen = true },
         )
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.workspace_app_info)) },
-                onClick = {
-                    menuOpen = false
-                    viewModel.openAppInfo(cell, anchor.request())
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.workspace_remove)) },
-                onClick = {
-                    menuOpen = false
-                    viewModel.remove(cell)
-                },
-            )
+        ItemMenu(
+            expanded = menuOpen,
+            onDismiss = { menuOpen = false },
+            owner = cell.app.key,
+            loadShortcuts = { viewModel.menuShortcuts(cell) },
+            onShortcutClick = { viewModel.launchShortcut(it, anchor.request()) },
+            onPinShortcut = { viewModel.pinShortcut(it, cell.app.key) },
+            actions = actions,
+            cornerRadiusPercent = cornerRadiusPercent,
+        )
+    }
+    if (renaming) {
+        RenameDialog(
+            currentName = cell.title,
+            canReset = cell.renamed,
+            onConfirm = { title ->
+                renaming = false
+                viewModel.rename(cell, title)
+            },
+            onDismiss = { renaming = false },
+        )
+    }
+}
+
+@Composable
+private fun homeItemActions(
+    cell: HomeCell,
+    viewModel: HomeViewModel,
+    anchor: LaunchAnchor,
+    onRename: () -> Unit,
+): List<MenuAction> {
+    val appInfo = stringResource(R.string.workspace_app_info)
+    val rename = stringResource(R.string.workspace_rename)
+    val remove = stringResource(R.string.workspace_remove)
+    val uninstall = stringResource(R.string.workspace_uninstall)
+    return buildList {
+        add(MenuAction(appInfo, Icons.Outlined.Info) { viewModel.openAppInfo(cell, anchor.request()) })
+        add(MenuAction(rename, Icons.Outlined.Edit, onRename))
+        add(MenuAction(remove, Icons.Outlined.Close) { viewModel.remove(cell) })
+        if (viewModel.canUninstall(cell)) {
+            add(MenuAction(uninstall, Icons.Outlined.Delete) { viewModel.uninstall(cell) })
         }
     }
 }

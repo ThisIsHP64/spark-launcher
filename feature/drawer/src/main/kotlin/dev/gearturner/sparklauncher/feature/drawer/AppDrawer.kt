@@ -31,8 +31,6 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -67,8 +65,18 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gearturner.sparklauncher.core.apps.LaunchRequest
 import dev.gearturner.sparklauncher.core.data.AddResult
-import dev.gearturner.sparklauncher.core.model.AppInfo
+import androidx.compose.material.icons.outlined.AddHome
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
+import dev.gearturner.sparklauncher.core.model.IconSource
 import dev.gearturner.sparklauncher.core.ui.AppIcon
+import dev.gearturner.sparklauncher.core.ui.ItemMenu
+import dev.gearturner.sparklauncher.core.ui.LaunchAnchor
+import dev.gearturner.sparklauncher.core.ui.MenuAction
+import dev.gearturner.sparklauncher.core.ui.RenameDialog
 import dev.gearturner.sparklauncher.core.ui.BaseIconSize
 import dev.gearturner.sparklauncher.core.ui.DrawerController
 import dev.gearturner.sparklauncher.core.ui.LabelStyle
@@ -154,7 +162,7 @@ fun AppDrawer(
         ) {
             SearchField(
                 state = searchState,
-                onSubmit = { state.apps.firstOrNull()?.let { viewModel.launch(it, anchorlessRequest()) } },
+                onSubmit = { state.entries.firstOrNull()?.let { viewModel.launch(it.app, anchorlessRequest()) } },
                 modifier = Modifier
                     .draggable(
                         state = headerDrag,
@@ -163,7 +171,7 @@ fun AppDrawer(
                     )
                     .padding(SearchBarInset),
             )
-            if (state.apps.isEmpty() && state.query.isNotBlank()) {
+            if (state.entries.isEmpty() && state.query.isNotBlank()) {
                 Text(
                     text = stringResource(R.string.drawer_no_results, state.query),
                     style = MaterialTheme.typography.bodyLarge,
@@ -183,9 +191,9 @@ fun AppDrawer(
                 ),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                items(state.apps, key = { it.key.toString() }) { app ->
+                items(state.entries, key = { it.app.key.toString() }) { entry ->
                     DrawerItem(
-                        app = app,
+                        entry = entry,
                         cornerRadiusPercent = state.settings.iconCornerRadiusPercent,
                         iconScale = state.settings.iconScale,
                         viewModel = viewModel,
@@ -254,19 +262,25 @@ private fun SearchField(
 
 @Composable
 private fun DrawerItem(
-    app: AppInfo,
+    entry: DrawerEntry,
     cornerRadiusPercent: Int,
     iconScale: Float,
     viewModel: DrawerViewModel,
 ) {
+    val app = entry.app
     var menuOpen by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
     val anchor = rememberLaunchAnchor()
+    val actions = drawerItemActions(entry, viewModel, anchor, onRename = { renaming = true })
     Box(
-        modifier = Modifier.padding(vertical = 8.dp),
+        modifier = Modifier
+            .padding(vertical = 8.dp)
+            // hidden apps only show up in search; dimming them makes it clear why they are there
+            .graphicsLayer { alpha = if (entry.hidden) HIDDEN_ALPHA else 1f },
         contentAlignment = Alignment.Center,
     ) {
         AppIcon(
-            appKey = app.key,
+            source = IconSource.App(app.key),
             label = app.label,
             iconSize = BaseIconSize * iconScale,
             cornerRadiusPercent = cornerRadiusPercent,
@@ -275,24 +289,59 @@ private fun DrawerItem(
             onClick = { viewModel.launch(app, anchor.request()) },
             onLongClick = { menuOpen = true },
         )
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.drawer_add_to_home)) },
-                onClick = {
-                    menuOpen = false
-                    viewModel.addToHome(app)
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.drawer_app_info)) },
-                onClick = {
-                    menuOpen = false
-                    viewModel.openAppInfo(app, anchor.request())
-                },
-            )
+        ItemMenu(
+            expanded = menuOpen,
+            onDismiss = { menuOpen = false },
+            owner = app.key,
+            loadShortcuts = { viewModel.menuShortcuts(app) },
+            onShortcutClick = { viewModel.launchShortcut(it, anchor.request()) },
+            onPinShortcut = { viewModel.pinShortcut(it, app.key) },
+            actions = actions,
+            cornerRadiusPercent = cornerRadiusPercent,
+        )
+    }
+    if (renaming) {
+        RenameDialog(
+            currentName = app.label,
+            canReset = entry.renamed,
+            onConfirm = { label ->
+                renaming = false
+                viewModel.rename(app, label)
+            },
+            onDismiss = { renaming = false },
+        )
+    }
+}
+
+@Composable
+private fun drawerItemActions(
+    entry: DrawerEntry,
+    viewModel: DrawerViewModel,
+    anchor: LaunchAnchor,
+    onRename: () -> Unit,
+): List<MenuAction> {
+    val app = entry.app
+    val addToHome = stringResource(R.string.drawer_add_to_home)
+    val appInfo = stringResource(R.string.drawer_app_info)
+    val rename = stringResource(R.string.drawer_rename)
+    val hide = stringResource(if (entry.hidden) R.string.drawer_unhide else R.string.drawer_hide)
+    val uninstall = stringResource(R.string.drawer_uninstall)
+    return buildList {
+        add(MenuAction(addToHome, Icons.Outlined.AddHome) { viewModel.addToHome(app) })
+        add(MenuAction(appInfo, Icons.Outlined.Info) { viewModel.openAppInfo(app, anchor.request()) })
+        add(MenuAction(rename, Icons.Outlined.Edit, onRename))
+        add(
+            MenuAction(hide, if (entry.hidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff) {
+                viewModel.setHidden(app, !entry.hidden)
+            },
+        )
+        if (viewModel.canUninstall(app)) {
+            add(MenuAction(uninstall, Icons.Outlined.Delete) { viewModel.uninstall(app) })
         }
     }
 }
+
+private const val HIDDEN_ALPHA = 0.5f
 
 /**
  * lets the grid hand leftover scroll to the drawer: pulling down past the top closes it,

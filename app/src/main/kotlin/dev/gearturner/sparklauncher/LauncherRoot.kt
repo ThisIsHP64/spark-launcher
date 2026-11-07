@@ -36,6 +36,7 @@ fun LauncherRoot(homePresses: Flow<Unit>) {
     WallpaperBlurEffect(drawer)
     // leaving for an app resets home quietly so returning never replays the drawer closing
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { drawer.snapClosed() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { homeViewModel.onResume() }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         drawer.travelPx = with(LocalDensity.current) { maxHeight.toPx() }

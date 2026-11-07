@@ -2,6 +2,11 @@
 <resources>
     <string name="workspace_remove">Remove</string>
     <string name="workspace_app_info">App info</string>
+    <string name="workspace_rename">Rename</string>
+    <string name="workspace_uninstall">Uninstall</string>
+    <string name="workspace_shortcut_added">Added to home screen</string>
+    <string name="workspace_already_added">Already on the home screen</string>
+    <string name="workspace_no_space">No room on the home screen</string>
     <string name="workspace_launch_failed">Could not open %1$s</string>
     <string name="workspace_page_indicator">Page %1$d of %2$d</string>
 </resources>

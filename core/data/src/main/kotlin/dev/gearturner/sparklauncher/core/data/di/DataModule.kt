@@ -11,6 +11,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dev.gearturner.sparklauncher.core.data.db.AppOverrideDao
 import dev.gearturner.sparklauncher.core.data.db.SparkDatabase
 import dev.gearturner.sparklauncher.core.data.db.WorkspaceDao
 import dev.gearturner.sparklauncher.core.data.settings.SettingsSerializer
@@ -28,6 +29,9 @@ object DataModule {
 
     @Provides
     fun provideWorkspaceDao(database: SparkDatabase): WorkspaceDao = database.workspaceDao()
+
+    @Provides
+    fun provideAppOverrideDao(database: SparkDatabase): AppOverrideDao = database.appOverrideDao()
 
     @Provides
     @Singleton

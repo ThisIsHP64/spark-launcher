@@ -22,6 +22,11 @@ data class CellPlacement(
     }
 }
 
+/**
+ * apps use [app]; shortcuts keep the owning app in [app] plus [shortcutId], so the pair forms the
+ * shortcut key; folders use [customTitle] as their name and hold children whose container points
+ * back at the folder id, ordered by cellX.
+ */
 data class WorkspaceItem(
     val id: Long,
     val type: ItemType,
@@ -29,4 +34,12 @@ data class WorkspaceItem(
     val placement: CellPlacement,
     val app: AppKey?,
     val customTitle: String? = null,
-)
+    val shortcutId: String? = null,
+) {
+    val shortcutKey: ShortcutKey?
+        get() = if (type == ItemType.SHORTCUT && app != null && shortcutId != null) {
+            ShortcutKey(app.packageName, shortcutId, app.userSerial)
+        } else {
+            null
+        }
+}

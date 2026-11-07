@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_rename_title">Rename</string>
+    <string name="ui_rename_hint">Name</string>
+    <string name="ui_rename_reset">Reset</string>
+    <string name="ui_save">Save</string>
+    <string name="ui_cancel">Cancel</string>
+    <string name="ui_pin_shortcut">Add %1$s to home screen</string>
+    <string name="ui_shortcut_disabled">%1$s is unavailable</string>
+</resources>

@@ -15,6 +15,9 @@ interface WorkspaceDao {
     @Query("SELECT * FROM workspace_items")
     suspend fun getAll(): List<WorkspaceItemEntity>
 
+    @Query("SELECT * FROM workspace_items WHERE id = :id")
+    suspend fun getById(id: Long): WorkspaceItemEntity?
+
     @Query("SELECT COUNT(*) FROM workspace_items")
     suspend fun count(): Int
 
