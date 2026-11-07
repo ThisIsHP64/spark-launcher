@@ -7,14 +7,11 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -23,42 +20,42 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Info
 import dev.gearturner.sparklauncher.core.data.AddResult
-import dev.gearturner.sparklauncher.core.ui.AppIcon
-import dev.gearturner.sparklauncher.core.ui.ItemMenu
-import dev.gearturner.sparklauncher.core.ui.LaunchAnchor
-import dev.gearturner.sparklauncher.core.ui.MenuAction
-import dev.gearturner.sparklauncher.core.ui.RenameDialog
+import dev.gearturner.sparklauncher.core.model.Dragged
 import dev.gearturner.sparklauncher.core.ui.BaseIconSize
+import dev.gearturner.sparklauncher.core.ui.DragController
+import dev.gearturner.sparklauncher.core.ui.DragOrigin
+import dev.gearturner.sparklauncher.core.ui.DragPayload
+import dev.gearturner.sparklauncher.core.ui.DropHandler
 import dev.gearturner.sparklauncher.core.ui.DrawerController
-import dev.gearturner.sparklauncher.core.ui.HomeIconRegistry
-import dev.gearturner.sparklauncher.core.ui.LabelStyle
+import dev.gearturner.sparklauncher.core.ui.LocalDragController
 import dev.gearturner.sparklauncher.core.ui.LocalHomeIconRegistry
-import dev.gearturner.sparklauncher.core.ui.RegisterHomeIcon
-import dev.gearturner.sparklauncher.core.ui.rememberLaunchAnchor
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
 fun HomeScreen(
@@ -68,228 +65,200 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val pagerState = rememberPagerState { state.pages.size }
+    val dragController = LocalDragController.current
+    val session = dragController?.session
+    // while dragging, an empty page waits past the last one so items can start a new page
+    val pagerState = rememberPagerState { state.pages.size + if (session != null) 1 else 0 }
     val iconRegistry = LocalHomeIconRegistry.current
-    val context = LocalContext.current
-    val resources = LocalResources.current
+    val geometry = remember { HomeGeometry() }
+    var rootOrigin by remember { mutableStateOf(Offset.Zero) }
+    var openFolderId by remember { mutableStateOf<Long?>(null) }
+    val density = LocalDensity.current
 
-    LaunchedEffect(viewModel, resources) {
-        viewModel.oneShotEvents.collect { event ->
-            when (event) {
-                is HomeEvent.LaunchFailed -> Toast.makeText(
-                    context,
-                    resources.getString(R.string.workspace_launch_failed, event.label),
-                    Toast.LENGTH_SHORT,
-                ).show()
-                is HomeEvent.ShortcutAdded -> Toast.makeText(
-                    context,
-                    resources.getString(
-                        when (event.result) {
-                            is AddResult.Added -> R.string.workspace_shortcut_added
-                            AddResult.AlreadyOnHome -> R.string.workspace_already_added
-                            AddResult.NoSpace -> R.string.workspace_no_space
-                        },
-                    ),
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
-    }
+    HomeEvents(viewModel)
     LaunchedEffect(pagerState, iconRegistry) {
         snapshotFlow { pagerState.currentPage }.collect { page -> iconRegistry?.currentPage = page }
     }
-    // pressing home while already home closes the drawer first, then returns to the first page
+    // pressing home while already home closes the drawer or a folder first, then returns to page one
     LaunchedEffect(homePresses) {
         homePresses.collect {
-            if (drawer.isVisible) drawer.close() else pagerState.animateScrollToPage(0)
+            when {
+                drawer.isVisible -> drawer.close()
+                openFolderId != null -> openFolderId = null
+                else -> pagerState.animateScrollToPage(0)
+            }
+        }
+    }
+    DisposableEffect(dragController, viewModel, geometry, pagerState) {
+        dragController?.dropHandler = DropHandler { ended, onSettled ->
+            val zone = geometry.resolve(ended.fingerInRoot, pagerState.currentPage, ended.payload)
+            handleDrop(zone, ended.payload, viewModel, onSettled)
+            // dragging an app out of a folder closes the folder once the app has landed
+            if (ended.origin == DragOrigin.Folder) openFolderId = null
+        }
+        onDispose { dragController?.dropHandler = null }
+    }
+    EdgePageFlip(dragController, geometry, pagerState)
+
+    val hovered by remember(dragController) {
+        derivedStateOf {
+            val active = dragController?.session ?: return@derivedStateOf DropZone.None
+            geometry.resolve(active.fingerInRoot, pagerState.currentPage, active.payload)
         }
     }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .swipeUpToOpen(drawer)
-            .statusBarsPadding()
-            .navigationBarsPadding(),
+            .onGloballyPositioned { rootOrigin = it.positionInRoot() },
     ) {
-        if (!state.loading) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                beyondViewportPageCount = 1,
-            ) { page ->
-                PageGrid(
-                    cells = state.pages.getOrNull(page).orEmpty(),
-                    columns = state.settings.homeColumns,
-                    rows = state.settings.homeRows,
-                    iconSize = BaseIconSize * state.settings.iconScale,
-                    cornerRadiusPercent = state.settings.iconCornerRadiusPercent,
-                    showLabels = state.settings.showHomeLabels,
-                    viewModel = viewModel,
-                )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .swipeUpToOpen(drawer, enabled = session == null)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        ) {
+            if (!state.loading) {
+                val iconSize = BaseIconSize * state.settings.iconScale
+                geometry.columns = state.settings.homeColumns
+                geometry.rows = state.settings.homeRows
+                geometry.dockSlots = state.settings.dockSlots
+                geometry.gridPaddingPx = with(density) { GridPadding.toPx() }
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .onGloballyPositioned { geometry.pagerBounds = it.boundsInRoot() },
+                    beyondViewportPageCount = 1,
+                ) { page ->
+                    PageGrid(
+                        tiles = state.pages.getOrNull(page).orEmpty(),
+                        columns = state.settings.homeColumns,
+                        rows = state.settings.homeRows,
+                        iconSize = iconSize,
+                        cornerRadiusPercent = state.settings.iconCornerRadiusPercent,
+                        showLabels = state.settings.showHomeLabels,
+                        viewModel = viewModel,
+                        onOpenFolder = { openFolderId = it },
+                    )
+                }
+                PageIndicator(pagerState)
+                if (state.settings.dockSlots > 0) {
+                    Dock(
+                        tiles = state.dock,
+                        slots = state.settings.dockSlots,
+                        iconSize = iconSize,
+                        cornerRadiusPercent = state.settings.iconCornerRadiusPercent,
+                        viewModel = viewModel,
+                        onBounds = { geometry.dockBounds = it },
+                        onOpenFolder = { openFolderId = it },
+                    )
+                } else {
+                    geometry.dockBounds = null
+                }
             }
-            PageIndicator(pagerState)
-            if (state.settings.dockSlots > 0) {
-                Dock(
-                    cells = state.dock,
-                    slots = state.settings.dockSlots,
-                    iconSize = BaseIconSize * state.settings.iconScale,
-                    cornerRadiusPercent = state.settings.iconCornerRadiusPercent,
-                    viewModel = viewModel,
-                )
+        }
+        if (session != null) {
+            DropHighlight(hovered, rootOrigin)
+            DropBar(session, hovered, geometry)
+        }
+        val openFolder = openFolderId?.let { id ->
+            (state.pages.flatten() + state.dock).firstOrNull { it.itemId == id } as? FolderTile
+        }
+        if (openFolder != null) {
+            FolderOverlay(
+                folder = openFolder,
+                draggingOut = session?.origin == DragOrigin.Folder,
+                iconSize = BaseIconSize * state.settings.iconScale,
+                cornerRadiusPercent = state.settings.iconCornerRadiusPercent,
+                viewModel = viewModel,
+                onClose = { openFolderId = null },
+            )
+        } else if (openFolderId != null && session == null) {
+            // the folder dissolved or was removed while open
+            openFolderId = null
+        }
+    }
+}
+
+private fun handleDrop(zone: DropZone, payload: DragPayload, viewModel: HomeViewModel, onSettled: () -> Unit) {
+    when (zone) {
+        is DropZone.Cell -> {
+            val dragged = when (payload) {
+                is DragPayload.Existing -> viewModel.existing(payload.itemId)?.let(Dragged::Existing)
+                is DragPayload.NewApp -> Dragged.NewApp(payload.key)
             }
+            if (dragged == null) onSettled() else viewModel.drop(dragged, zone.target, onSettled)
+        }
+        DropZone.Remove -> {
+            if (payload is DragPayload.Existing) viewModel.remove(payload.itemId)
+            onSettled()
+        }
+        DropZone.Uninstall -> {
+            when (payload) {
+                is DragPayload.Existing -> payload.app?.let(viewModel::uninstall)
+                is DragPayload.NewApp -> viewModel.uninstall(payload.key)
+            }
+            onSettled()
+        }
+        DropZone.None -> onSettled()
+    }
+}
+
+/** holding a dragged icon at either edge turns the page, repeatedly while it stays there */
+@Composable
+private fun EdgePageFlip(controller: DragController?, geometry: HomeGeometry, pagerState: PagerState) {
+    val edgePx = with(LocalDensity.current) { EDGE_ZONE.toPx() }
+    // keyed on the controller rather than the finger, so moving within an edge keeps the dwell timer running
+    LaunchedEffect(controller, pagerState) {
+        if (controller == null) return@LaunchedEffect
+        snapshotFlow { controller.session?.fingerInRoot?.let { geometry.edgeDirection(it, edgePx) } ?: 0 }
+            .distinctUntilChanged()
+            .collectLatest { direction ->
+                while (direction != 0) {
+                    delay(EDGE_DWELL_MS)
+                    val target = (pagerState.currentPage + direction).coerceIn(0, pagerState.pageCount - 1)
+                    if (target == pagerState.currentPage) break
+                    pagerState.animateScrollToPage(target)
+                }
+            }
+    }
+}
+
+@Composable
+private fun HomeEvents(viewModel: HomeViewModel) {
+    val context = LocalContext.current
+    val resources = LocalResources.current
+    LaunchedEffect(viewModel, resources) {
+        viewModel.oneShotEvents.collect { event ->
+            val message = when (event) {
+                is HomeEvent.LaunchFailed -> resources.getString(R.string.workspace_launch_failed, event.label)
+                is HomeEvent.ShortcutAdded -> resources.getString(
+                    when (event.result) {
+                        is AddResult.Added -> R.string.workspace_shortcut_added
+                        AddResult.AlreadyOnHome -> R.string.workspace_already_added
+                        AddResult.NoSpace -> R.string.workspace_no_space
+                    },
+                )
+                HomeEvent.DropRefused -> resources.getString(R.string.workspace_drop_refused)
+            }
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
     }
 }
 
 /** tracks vertical drags anywhere on home and hands the travel to the drawer */
 @Composable
-private fun Modifier.swipeUpToOpen(drawer: DrawerController): Modifier {
+private fun Modifier.swipeUpToOpen(drawer: DrawerController, enabled: Boolean): Modifier {
     val dragState = rememberDraggableState { delta -> drawer.dragBy(-delta) }
     return draggable(
         state = dragState,
         orientation = Orientation.Vertical,
+        enabled = enabled,
         onDragStopped = { velocity -> drawer.settle(-velocity) },
     )
-}
-
-@Composable
-private fun PageGrid(
-    cells: List<HomeCell>,
-    columns: Int,
-    rows: Int,
-    iconSize: Dp,
-    cornerRadiusPercent: Int,
-    showLabels: Boolean,
-    viewModel: HomeViewModel,
-) {
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 8.dp),
-    ) {
-        val cellWidth = maxWidth / columns
-        val cellHeight = maxHeight / rows
-        cells.forEach { cell ->
-            HomeItem(
-                cell = cell,
-                registryPage = cell.placement.page,
-                iconSize = iconSize,
-                cornerRadiusPercent = cornerRadiusPercent,
-                labelStyle = if (showLabels) LabelStyle.OnWallpaper else LabelStyle.Hidden,
-                viewModel = viewModel,
-                modifier = Modifier
-                    .offset(x = cellWidth * cell.placement.cellX, y = cellHeight * cell.placement.cellY)
-                    .size(cellWidth * cell.placement.spanX, cellHeight * cell.placement.spanY),
-            )
-        }
-    }
-}
-
-@Composable
-private fun Dock(
-    cells: List<HomeCell>,
-    slots: Int,
-    iconSize: Dp,
-    cornerRadiusPercent: Int,
-    viewModel: HomeViewModel,
-) {
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 8.dp)
-            .height(iconSize + 24.dp),
-    ) {
-        val slotWidth = maxWidth / slots
-        cells.forEach { cell ->
-            HomeItem(
-                cell = cell,
-                registryPage = HomeIconRegistry.DOCK_PAGE,
-                iconSize = iconSize,
-                cornerRadiusPercent = cornerRadiusPercent,
-                // the pixel dock omits labels so it reads as a distinct row
-                labelStyle = LabelStyle.Hidden,
-                viewModel = viewModel,
-                modifier = Modifier
-                    .offset(x = slotWidth * cell.placement.cellX)
-                    .size(slotWidth, maxHeight),
-            )
-        }
-    }
-}
-
-@Composable
-private fun HomeItem(
-    cell: HomeCell,
-    registryPage: Int,
-    iconSize: Dp,
-    cornerRadiusPercent: Int,
-    labelStyle: LabelStyle,
-    viewModel: HomeViewModel,
-    modifier: Modifier = Modifier,
-) {
-    var menuOpen by remember { mutableStateOf(false) }
-    var renaming by remember { mutableStateOf(false) }
-    val anchor = rememberLaunchAnchor()
-    // only real app icons are close animation targets; a shortcut is not where its app lives
-    if (cell.shortcut == null) RegisterHomeIcon(cell.itemId, cell.app.key, registryPage, anchor)
-    val actions = homeItemActions(cell, viewModel, anchor, onRename = { renaming = true })
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        AppIcon(
-            source = cell.iconSource,
-            label = cell.title,
-            iconSize = iconSize,
-            cornerRadiusPercent = cornerRadiusPercent,
-            labelStyle = labelStyle,
-            anchor = anchor,
-            onClick = { viewModel.launch(cell, anchor.request()) },
-            onLongClick = { menuOpen = true },
-        )
-        ItemMenu(
-            expanded = menuOpen,
-            onDismiss = { menuOpen = false },
-            owner = cell.app.key,
-            loadShortcuts = { viewModel.menuShortcuts(cell) },
-            onShortcutClick = { viewModel.launchShortcut(it, anchor.request()) },
-            onPinShortcut = { viewModel.pinShortcut(it, cell.app.key) },
-            actions = actions,
-            cornerRadiusPercent = cornerRadiusPercent,
-        )
-    }
-    if (renaming) {
-        RenameDialog(
-            currentName = cell.title,
-            canReset = cell.renamed,
-            onConfirm = { title ->
-                renaming = false
-                viewModel.rename(cell, title)
-            },
-            onDismiss = { renaming = false },
-        )
-    }
-}
-
-@Composable
-private fun homeItemActions(
-    cell: HomeCell,
-    viewModel: HomeViewModel,
-    anchor: LaunchAnchor,
-    onRename: () -> Unit,
-): List<MenuAction> {
-    val appInfo = stringResource(R.string.workspace_app_info)
-    val rename = stringResource(R.string.workspace_rename)
-    val remove = stringResource(R.string.workspace_remove)
-    val uninstall = stringResource(R.string.workspace_uninstall)
-    return buildList {
-        add(MenuAction(appInfo, Icons.Outlined.Info) { viewModel.openAppInfo(cell, anchor.request()) })
-        add(MenuAction(rename, Icons.Outlined.Edit, onRename))
-        add(MenuAction(remove, Icons.Outlined.Close) { viewModel.remove(cell) })
-        if (viewModel.canUninstall(cell)) {
-            add(MenuAction(uninstall, Icons.Outlined.Delete) { viewModel.uninstall(cell) })
-        }
-    }
 }
 
 @Composable
@@ -319,3 +288,5 @@ private fun PageIndicator(pagerState: PagerState) {
     }
 }
 
+private val EDGE_ZONE = 32.dp
+private const val EDGE_DWELL_MS = 550L

@@ -3,6 +3,7 @@ package dev.gearturner.sparklauncher.core.data
 import dev.gearturner.sparklauncher.core.apps.ShortcutsRepository
 import dev.gearturner.sparklauncher.core.model.AppKey
 import dev.gearturner.sparklauncher.core.model.AppShortcut
+import dev.gearturner.sparklauncher.core.model.WorkspaceItem
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,10 +35,16 @@ class ShortcutPlacement @Inject constructor(
         return result
     }
 
+    /** removing a folder can drop several shortcuts at once, so every affected package re-syncs */
     suspend fun removeFromHome(itemId: Long) {
-        val removed = workspace.remove(itemId) ?: return
-        val key = removed.shortcutKey ?: return
-        syncPins(key.packageName, key.userSerial)
+        releasePins(workspace.remove(itemId))
+    }
+
+    suspend fun releasePins(removed: List<WorkspaceItem>) {
+        removed.mapNotNull { it.shortcutKey }
+            .map { it.packageName to it.userSerial }
+            .distinct()
+            .forEach { (packageName, serial) -> syncPins(packageName, serial) }
     }
 
     private suspend fun syncPins(packageName: String, userSerial: Long) {

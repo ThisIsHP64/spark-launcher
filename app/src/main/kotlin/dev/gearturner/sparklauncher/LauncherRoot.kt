@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -17,7 +19,10 @@ import androidx.core.view.WindowCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import dev.gearturner.sparklauncher.core.ui.DragController
+import dev.gearturner.sparklauncher.core.ui.DragLayer
 import dev.gearturner.sparklauncher.core.ui.DrawerController
+import dev.gearturner.sparklauncher.core.ui.LocalDragController
 import dev.gearturner.sparklauncher.core.ui.rememberDrawerController
 import dev.gearturner.sparklauncher.feature.drawer.AppDrawer
 import dev.gearturner.sparklauncher.feature.drawer.DrawerViewModel
@@ -29,30 +34,38 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 @Composable
 fun LauncherRoot(homePresses: Flow<Unit>) {
     val drawer = rememberDrawerController()
+    val dragController = remember { DragController() }
     val homeViewModel: HomeViewModel = hiltViewModel()
     val drawerViewModel: DrawerViewModel = hiltViewModel()
 
     SystemBarAppearance(drawer)
     WallpaperBlurEffect(drawer)
     // leaving for an app resets home quietly so returning never replays the drawer closing
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { drawer.snapClosed() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        drawer.snapClosed()
+        // a drag cannot survive the launcher being hidden, for example by an incoming call
+        dragController.cancel()
+    }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { homeViewModel.onResume() }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        drawer.travelPx = with(LocalDensity.current) { maxHeight.toPx() }
-        // a light scrim follows the drawer so the wallpaper dims as it slides in
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.25f * drawer.value)),
-        )
-        HomeScreen(
-            viewModel = homeViewModel,
-            drawer = drawer,
-            homePresses = homePresses,
-            modifier = Modifier.blurBehindDrawer(drawer),
-        )
-        AppDrawer(viewModel = drawerViewModel, drawer = drawer)
+    CompositionLocalProvider(LocalDragController provides dragController) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            drawer.travelPx = with(LocalDensity.current) { maxHeight.toPx() }
+            // a light scrim follows the drawer so the wallpaper dims as it slides in
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.25f * drawer.value)),
+            )
+            HomeScreen(
+                viewModel = homeViewModel,
+                drawer = drawer,
+                homePresses = homePresses,
+                modifier = Modifier.blurBehindDrawer(drawer),
+            )
+            AppDrawer(viewModel = drawerViewModel, drawer = drawer)
+            DragLayer(dragController)
+        }
     }
 }
 

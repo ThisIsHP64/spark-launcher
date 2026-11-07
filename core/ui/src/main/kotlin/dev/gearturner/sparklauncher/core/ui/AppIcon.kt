@@ -1,9 +1,7 @@
 package dev.gearturner.sparklauncher.core.ui
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +16,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -29,10 +29,15 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,7 +82,6 @@ fun rememberIcon(source: IconSource, size: Dp, cornerRadiusPercent: Int): ImageB
     }.value
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppIcon(
     source: IconSource,
@@ -89,21 +93,77 @@ fun AppIcon(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
+    dragHandler: IconDragHandler? = null,
 ) {
-    val haptics = LocalHapticFeedback.current
     val bitmap = rememberIcon(source, iconSize, cornerRadiusPercent)
     SideEffect { anchor.icon = bitmap }
+    LauncherTile(
+        label = label,
+        iconSize = iconSize,
+        labelStyle = labelStyle,
+        anchor = anchor,
+        onClick = onClick,
+        onLongClick = onLongClick,
+        modifier = modifier,
+        dragHandler = dragHandler,
+    ) {
+        if (bitmap != null) {
+            Image(bitmap = bitmap, contentDescription = null, modifier = Modifier.size(iconSize))
+        } else {
+            // a neutral plate keeps the grid stable while the icon loads or if it failed to render
+            Box(
+                modifier = Modifier
+                    .size(iconSize)
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        RoundedCornerShape(percent = cornerRadiusPercent),
+                    ),
+            )
+        }
+    }
+}
+
+/**
+ * the shared shape of everything on home: an icon area with a label, tap, long press and drag.
+ * apps draw a bitmap in it and folders draw a preview of their contents.
+ */
+@Composable
+fun LauncherTile(
+    label: String,
+    iconSize: Dp,
+    labelStyle: LabelStyle,
+    anchor: LaunchAnchor,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    dragHandler: IconDragHandler? = null,
+    icon: @Composable () -> Unit,
+) {
+    val haptics = LocalHapticFeedback.current
+    var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     Column(
         modifier = modifier
-            .combinedClickable(
-                role = Role.Button,
-                onClickLabel = label,
+            .onGloballyPositioned { coordinates = it }
+            .iconGestures(
+                coordinates = { coordinates },
+                iconBounds = { anchor.boundsInRoot() },
+                haptics = haptics,
                 onClick = onClick,
-                onLongClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onLongClick()
-                },
+                onLongClick = onLongClick,
+                dragHandler = dragHandler,
             )
+            // the custom detector replaces clickable, so tap and long press are restated for talkback
+            .semantics {
+                role = Role.Button
+                onClick(label = label) {
+                    onClick()
+                    true
+                }
+                onLongClick {
+                    onLongClick()
+                    true
+                }
+            }
             .padding(4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -116,19 +176,7 @@ fun AppIcon(
                 .graphicsLayer { alpha = if (anchor.hidden) 0f else 1f },
             contentAlignment = Alignment.Center,
         ) {
-            if (bitmap != null) {
-                Image(bitmap = bitmap, contentDescription = null, modifier = Modifier.size(iconSize))
-            } else {
-                // a neutral plate keeps the grid stable while the icon loads or if it failed to render
-                Box(
-                    modifier = Modifier
-                        .size(iconSize)
-                        .background(
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                            RoundedCornerShape(percent = cornerRadiusPercent),
-                        ),
-                )
-            }
+            icon()
         }
         if (labelStyle != LabelStyle.Hidden) {
             Spacer(modifier = Modifier.height(6.dp))

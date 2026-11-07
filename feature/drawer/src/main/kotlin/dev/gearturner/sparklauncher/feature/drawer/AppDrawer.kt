@@ -72,7 +72,14 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import dev.gearturner.sparklauncher.core.model.IconSource
+import androidx.compose.ui.geometry.Rect
 import dev.gearturner.sparklauncher.core.ui.AppIcon
+import dev.gearturner.sparklauncher.core.ui.DragController
+import dev.gearturner.sparklauncher.core.ui.DragOrigin
+import dev.gearturner.sparklauncher.core.ui.DragPayload
+import dev.gearturner.sparklauncher.core.ui.DragSession
+import dev.gearturner.sparklauncher.core.ui.IconDragHandler
+import dev.gearturner.sparklauncher.core.ui.LocalDragController
 import dev.gearturner.sparklauncher.core.ui.ItemMenu
 import dev.gearturner.sparklauncher.core.ui.LaunchAnchor
 import dev.gearturner.sparklauncher.core.ui.MenuAction
@@ -106,13 +113,16 @@ fun AppDrawer(
     val resources = LocalResources.current
 
     BackHandler(enabled = drawer.isOpen) { drawer.close() }
+    val dragController = LocalDragController.current
+    // an app dragged out of the drawer is still owned by its grid cell, so the drawer must stay composed
+    val draggingFromDrawer = dragController?.session?.origin == DragOrigin.Drawer
 
     LaunchedEffect(searchState) {
         snapshotFlow { searchState.text.toString() }.collect(viewModel::onQueryChange)
     }
     // a fully closed drawer resets so the next open starts at the top with an empty search
-    LaunchedEffect(drawer) {
-        snapshotFlow { drawer.value == 0f }.collect { closed ->
+    LaunchedEffect(drawer, dragController) {
+        snapshotFlow { drawer.value == 0f && dragController?.session == null }.collect { closed ->
             if (closed) {
                 keyboard?.hide()
                 focusManager.clearFocus()
@@ -137,7 +147,7 @@ fun AppDrawer(
         }
     }
 
-    if (!drawer.isVisible) return
+    if (!drawer.isVisible && !draggingFromDrawer) return
 
     val closeOnOverscroll = remember(drawer) { DrawerNestedScroll(drawer) }
     val headerDrag = rememberDraggableState { delta -> drawer.dragBy(-delta) }
@@ -197,6 +207,7 @@ fun AppDrawer(
                         cornerRadiusPercent = state.settings.iconCornerRadiusPercent,
                         iconScale = state.settings.iconScale,
                         viewModel = viewModel,
+                        drawer = drawer,
                     )
                 }
             }
@@ -266,12 +277,20 @@ private fun DrawerItem(
     cornerRadiusPercent: Int,
     iconScale: Float,
     viewModel: DrawerViewModel,
+    drawer: DrawerController,
 ) {
     val app = entry.app
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     val anchor = rememberLaunchAnchor()
     val actions = drawerItemActions(entry, viewModel, anchor, onRename = { renaming = true })
+    val dragController = LocalDragController.current
+    val canUninstall = viewModel.canUninstall(app)
+    val dragHandler = remember(dragController, app.key, canUninstall, drawer) {
+        dragController?.let { controller ->
+            drawerDragHandler(controller, drawer, anchor, DragPayload.NewApp(app.key, canUninstall)) { menuOpen = false }
+        }
+    }
     Box(
         modifier = Modifier
             .padding(vertical = 8.dp)
@@ -288,6 +307,7 @@ private fun DrawerItem(
             anchor = anchor,
             onClick = { viewModel.launch(app, anchor.request()) },
             onLongClick = { menuOpen = true },
+            dragHandler = dragHandler,
         )
         ItemMenu(
             expanded = menuOpen,
@@ -342,6 +362,36 @@ private fun drawerItemActions(
 }
 
 private const val HIDDEN_ALPHA = 0.5f
+
+/** dragging an app out closes the drawer so the home screen is there to drop it on, as on pixel */
+private fun drawerDragHandler(
+    controller: DragController,
+    drawer: DrawerController,
+    anchor: LaunchAnchor,
+    payload: DragPayload,
+    closeMenu: () -> Unit,
+): IconDragHandler = object : IconDragHandler {
+    override fun onDragStart(fingerInRoot: Offset, iconBoundsInRoot: Rect) {
+        closeMenu()
+        drawer.close()
+        controller.start(
+            DragSession(
+                payload = payload,
+                origin = DragOrigin.Drawer,
+                icon = anchor.icon,
+                iconSizePx = iconBoundsInRoot.width,
+                grabOffset = fingerInRoot - iconBoundsInRoot.topLeft,
+                fingerInRoot = fingerInRoot,
+            ),
+        )
+    }
+
+    override fun onDragMove(fingerInRoot: Offset) = controller.move(fingerInRoot)
+
+    override fun onDragEnd() = controller.drop {}
+
+    override fun onDragCancel() = controller.cancel()
+}
 
 /**
  * lets the grid hand leftover scroll to the drawer: pulling down past the top closes it,

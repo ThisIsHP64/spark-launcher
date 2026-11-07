@@ -70,6 +70,11 @@ class AppsRepository @Inject constructor(
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
 
+    private val removedPackages = MutableSharedFlow<Pair<String, Long>>(extraBufferCapacity = 32)
+
+    /** a package fully uninstalled from one profile, as package name and profile serial */
+    val packageRemovals: SharedFlow<Pair<String, Long>> = removedPackages.asSharedFlow()
+
     /** fires whenever any app publishes, updates or removes shortcuts, or apps change */
     val shortcutChanges: SharedFlow<Unit> = changedShortcuts.asSharedFlow()
 
@@ -178,7 +183,11 @@ class AppsRepository @Inject constructor(
 
     private fun systemChangeSignals() = callbackFlow {
         val callback = object : LauncherApps.Callback() {
-            override fun onPackageRemoved(packageName: String, user: UserHandle) = changed(setOf(packageName))
+            override fun onPackageRemoved(packageName: String, user: UserHandle) {
+                // updates arrive as changes, so a removal here means the app is really gone
+                removedPackages.tryEmit(packageName to userManager.getSerialNumberForUser(user))
+                changed(setOf(packageName))
+            }
             override fun onPackageAdded(packageName: String, user: UserHandle) = changed(setOf(packageName))
             override fun onPackageChanged(packageName: String, user: UserHandle) = changed(setOf(packageName))
             override fun onPackagesAvailable(names: Array<out String>, user: UserHandle, replacing: Boolean) =

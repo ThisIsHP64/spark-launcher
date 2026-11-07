@@ -19,6 +19,9 @@ import dev.gearturner.sparklauncher.core.model.AppOverride
 import dev.gearturner.sparklauncher.core.model.AppShortcut
 import dev.gearturner.sparklauncher.core.model.CellPlacement
 import dev.gearturner.sparklauncher.core.model.Container
+import dev.gearturner.sparklauncher.core.model.DropPlan
+import dev.gearturner.sparklauncher.core.model.DropTarget
+import dev.gearturner.sparklauncher.core.model.Dragged
 import dev.gearturner.sparklauncher.core.model.IconSource
 import dev.gearturner.sparklauncher.core.model.ItemType
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
@@ -30,34 +33,50 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/** anything that occupies cells on a home page or a dock slot */
+sealed interface HomeTile {
+    val itemId: Long
+    val placement: CellPlacement
+}
+
 /** one tappable thing on home: an app, or a shortcut that belongs to [app] */
 data class HomeCell(
-    val itemId: Long,
+    override val itemId: Long,
     val app: AppInfo,
     val title: String,
-    val placement: CellPlacement,
+    override val placement: CellPlacement,
     val shortcut: ShortcutKey? = null,
     /** true when the user renamed this item, which offers a reset in the rename dialog */
     val renamed: Boolean = false,
-) {
+) : HomeTile {
     val iconSource: IconSource
         get() = shortcut?.let { IconSource.Shortcut(it, app.key) } ?: IconSource.App(app.key)
 }
 
+data class FolderTile(
+    override val itemId: Long,
+    /** null until the user names it, so the ui can show a localized default */
+    val name: String?,
+    override val placement: CellPlacement,
+    val children: List<HomeCell>,
+) : HomeTile
+
 data class HomeUiState(
     val loading: Boolean = true,
-    val pages: List<List<HomeCell>> = listOf(emptyList()),
-    val dock: List<HomeCell> = emptyList(),
+    val pages: List<List<HomeTile>> = listOf(emptyList()),
+    val dock: List<HomeTile> = emptyList(),
     val settings: LauncherSettings = LauncherSettings(),
 )
 
 sealed interface HomeEvent {
     data class LaunchFailed(val label: String) : HomeEvent
     data class ShortcutAdded(val result: AddResult) : HomeEvent
+    data object DropRefused : HomeEvent
 }
 
 @HiltViewModel
@@ -73,8 +92,11 @@ class HomeViewModel @Inject constructor(
     private val events = Channel<HomeEvent>(Channel.BUFFERED)
     val oneShotEvents: Flow<HomeEvent> = events.receiveAsFlow()
 
+    @Volatile
+    private var latestItems: List<WorkspaceItem> = emptyList()
+
     val state: StateFlow<HomeUiState> = combine(
-        workspace.items,
+        workspace.items.onEach { latestItems = it },
         apps.apps,
         settingsRepository.settings,
         shortcuts.pinned,
@@ -122,17 +144,38 @@ class HomeViewModel @Inject constructor(
 
     fun canUninstall(cell: HomeCell): Boolean = cell.shortcut == null && apps.canUninstall(cell.app.key)
 
-    fun uninstall(cell: HomeCell) {
-        apps.requestUninstall(cell.app.key)
+    fun rename(itemId: Long, title: String?) {
+        viewModelScope.launch { workspace.rename(itemId, title) }
     }
 
-    fun rename(cell: HomeCell, title: String?) {
-        viewModelScope.launch { workspace.rename(cell.itemId, title) }
+    fun remove(itemId: Long) {
+        viewModelScope.launch { shortcutPlacement.removeFromHome(itemId) }
     }
 
-    fun remove(cell: HomeCell) {
-        viewModelScope.launch { shortcutPlacement.removeFromHome(cell.itemId) }
+    fun canUninstall(key: AppKey): Boolean = apps.canUninstall(key)
+
+    fun uninstall(key: AppKey) {
+        apps.requestUninstall(key)
     }
+
+    /**
+     * writes a drop. [onSettled] runs once the layout is saved or the drop refused, which is when
+     * the dragged icon's original spot can show again without flashing the old position.
+     */
+    fun drop(dragged: Dragged, target: DropTarget, onSettled: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                val settings = settingsRepository.current()
+                val plan = workspace.drop(dragged, target, settings.homeColumns, settings.homeRows, settings.dockSlots)
+                if (plan == DropPlan.Reject) events.send(HomeEvent.DropRefused)
+            } finally {
+                onSettled()
+            }
+        }
+    }
+
+    /** looks the dragged item up by id; the repository re-reads it inside the transaction anyway */
+    fun existing(itemId: Long): WorkspaceItem? = latestItems.firstOrNull { it.id == itemId }
 
     /** spark becoming the default home app is the moment shortcut access appears */
     fun onResume() = shortcuts.refresh()
@@ -179,13 +222,22 @@ internal fun buildState(
             ItemType.FOLDER, ItemType.WIDGET -> null
         }
     }
+    fun WorkspaceItem.toTile(): HomeTile? {
+        if (type != ItemType.FOLDER) return toCell()
+        val children = items.filter { it.container == Container.Folder(id) }
+            .sortedBy { it.placement.cellX }
+            .mapNotNull { it.toCell() }
+        // a folder whose apps are all unavailable has nothing to show or open
+        if (children.isEmpty()) return null
+        return FolderTile(id, customTitle, placement, children)
+    }
     val desktop = items.filter { it.container == Container.Desktop }
         .filter { it.placement.cellX < settings.homeColumns && it.placement.cellY < settings.homeRows }
-        .mapNotNull { it.toCell() }
+        .mapNotNull { it.toTile() }
     val pageCount = (desktop.maxOfOrNull { it.placement.page } ?: 0) + 1
     val pages = List(pageCount) { page -> desktop.filter { it.placement.page == page } }
     val dock = items.filter { it.container == Container.Dock && it.placement.cellX < settings.dockSlots }
-        .mapNotNull { it.toCell() }
+        .mapNotNull { it.toTile() }
         .sortedBy { it.placement.cellX }
     return HomeUiState(loading = false, pages = pages, dock = dock, settings = settings)
 }

@@ -7,6 +7,10 @@ import dev.gearturner.sparklauncher.core.data.db.WorkspaceItemEntity
 import dev.gearturner.sparklauncher.core.model.AppKey
 import dev.gearturner.sparklauncher.core.model.CellPlacement
 import dev.gearturner.sparklauncher.core.model.Container
+import dev.gearturner.sparklauncher.core.model.DropPlan
+import dev.gearturner.sparklauncher.core.model.DropTarget
+import dev.gearturner.sparklauncher.core.model.Dragged
+import dev.gearturner.sparklauncher.core.model.ItemType
 import dev.gearturner.sparklauncher.core.model.ShortcutKey
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -33,7 +37,7 @@ class WorkspaceRepositoryTest {
         db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), SparkDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        repository = WorkspaceRepository(db.workspaceDao())
+        repository = WorkspaceRepository(db)
     }
 
     @After
@@ -83,7 +87,7 @@ class WorkspaceRepositoryTest {
     @Test
     fun removeDeletesTheRowAndReturnsIt() = runTest {
         val added = repository.addAppToDesktop(app("gone"), 4, 5) as AddResult.Added
-        assertEquals(added.item.id, repository.remove(added.item.id)?.id)
+        assertEquals(listOf(added.item.id), repository.remove(added.item.id).map { it.id })
         assertTrue(repository.isEmpty())
     }
 
@@ -108,5 +112,43 @@ class WorkspaceRepositoryTest {
         val shortcutItem = repository.items.first().first { it.shortcutKey == home }
         repository.remove(shortcutItem.id)
         assertEquals(setOf("work"), repository.pinnedShortcutIds(owner.packageName, 0))
+    }
+
+    @Test
+    fun droppingAppOnAppBuildsAFolderAndDraggingOneOutDissolvesIt() = runTest {
+        val a = (repository.addAppToDesktop(app("a"), 4, 5) as AddResult.Added).item
+        val b = (repository.addAppToDesktop(app("b"), 4, 5) as AddResult.Added).item
+        val plan = repository.drop(Dragged.Existing(a), DropTarget.Desktop(0, 1, 0), 4, 5, 4)
+        assertTrue(plan is DropPlan.CreateFolder)
+        val withFolder = repository.items.first()
+        val folder = withFolder.single { it.type == ItemType.FOLDER }
+        assertEquals(CellPlacement(0, 1, 0), folder.placement)
+        assertEquals(2, withFolder.count { it.container == Container.Folder(folder.id) })
+
+        val movedA = withFolder.single { it.id == a.id }
+        repository.drop(Dragged.Existing(movedA), DropTarget.Desktop(0, 3, 4), 4, 5, 4)
+        val after = repository.items.first().associateBy { it.id }
+        assertEquals(2, after.size)
+        assertEquals(CellPlacement(0, 1, 0), after.getValue(b.id).placement)
+        assertEquals(Container.Desktop, after.getValue(b.id).container)
+    }
+
+    @Test
+    fun drawerAppsCanBeDroppedOntoTheDock() = runTest {
+        repository.drop(Dragged.NewApp(app("n")), DropTarget.Dock(2), 4, 5, 4)
+        val item = repository.items.first().single()
+        assertEquals(Container.Dock, item.container)
+        assertEquals(2, item.placement.cellX)
+    }
+
+    @Test
+    fun removingAPackageClearsItsIconsAndTidiesFolders() = runTest {
+        val a = (repository.addAppToDesktop(app("a"), 4, 5) as AddResult.Added).item
+        repository.addAppToDesktop(app("b"), 4, 5)
+        repository.drop(Dragged.Existing(a), DropTarget.Desktop(0, 1, 0), 4, 5, 4)
+        repository.removePackage("com.example.a", 0)
+        val left = repository.items.first().single()
+        assertEquals(app("b"), left.app)
+        assertEquals(Container.Desktop, left.container)
     }
 }

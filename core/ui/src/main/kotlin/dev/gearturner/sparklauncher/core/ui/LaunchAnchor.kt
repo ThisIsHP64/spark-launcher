@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect as ComposeRect
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -41,6 +42,9 @@ class LaunchAnchor internal constructor(private val view: View) {
     internal fun update(coordinates: LayoutCoordinates) {
         this.coordinates = coordinates
     }
+
+    /** the icon's rectangle in root compose coordinates, or null when it is not laid out */
+    fun boundsInRoot(): ComposeRect? = coordinates?.takeIf { it.isAttached }?.boundsInRoot()
 
     /** the icon's rectangle in screen pixels, or null when it is not laid out */
     fun boundsOnScreen(): RectF? {

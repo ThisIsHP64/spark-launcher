@@ -36,7 +36,7 @@ class BuildStateTest {
         )
         val state = buildState(items, listOf(info("a"), info("b"), info("c")), LauncherSettings())
         assertEquals(2, state.pages.size)
-        assertEquals(emptyList<HomeCell>(), state.pages[0])
+        assertEquals(emptyList<HomeTile>(), state.pages[0])
         assertEquals(listOf(3L, 2L), state.dock.map { it.itemId })
     }
 
@@ -51,6 +51,21 @@ class BuildStateTest {
     fun customTitleOverridesLabel() {
         val items = listOf(item(1, "a", Container.Desktop, CellPlacement(0, 0, 0), title = "Work"))
         val state = buildState(items, listOf(info("a")), LauncherSettings())
-        assertEquals("Work", state.pages.single().single().title)
+        assertEquals("Work", (state.pages.single().single() as HomeCell).title)
+    }
+
+    @Test
+    fun foldersCollectTheirChildrenInOrderAndHideWhenEmpty() {
+        val items = listOf(
+            WorkspaceItem(5, ItemType.FOLDER, Container.Desktop, CellPlacement(0, 0, 0), app = null, customTitle = "Games"),
+            item(1, "b", Container.Folder(5), CellPlacement(0, 1, 0)),
+            item(2, "a", Container.Folder(5), CellPlacement(0, 0, 0)),
+            WorkspaceItem(6, ItemType.FOLDER, Container.Desktop, CellPlacement(0, 1, 0), app = null),
+            item(3, "gone", Container.Folder(6), CellPlacement(0, 0, 0)),
+        )
+        val state = buildState(items, listOf(info("a"), info("b")), LauncherSettings())
+        val folder = state.pages.single().single() as FolderTile
+        assertEquals("Games", folder.name)
+        assertEquals(listOf(2L, 1L), folder.children.map { it.itemId })
     }
 }
