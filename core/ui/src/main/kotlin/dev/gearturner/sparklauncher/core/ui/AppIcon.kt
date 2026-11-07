@@ -1,0 +1,151 @@
+package dev.gearturner.sparklauncher.core.ui
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import dev.gearturner.sparklauncher.core.icons.IconRepository
+import dev.gearturner.sparklauncher.core.icons.IconRequest
+import dev.gearturner.sparklauncher.core.model.AppKey
+
+/** provided once by the activity so every icon in the tree shares one cache */
+val LocalIconRepository = staticCompositionLocalOf<IconRepository> {
+    error("LocalIconRepository was not provided")
+}
+
+/** the pixel launcher's base icon size; the user's scale setting multiplies it */
+val BaseIconSize: Dp = 56.dp
+
+enum class LabelStyle {
+    /** white text with a soft shadow, readable on any wallpaper */
+    OnWallpaper,
+    /** theme colored text for opaque surfaces like the drawer */
+    OnSurface,
+    Hidden,
+}
+
+@Composable
+fun rememberAppIcon(key: AppKey, size: Dp, cornerRadiusPercent: Int): ImageBitmap? {
+    val repository = LocalIconRepository.current
+    val sizePx = with(LocalDensity.current) { size.roundToPx() }
+    val generation by repository.generation.collectAsState()
+    val request = remember(key, sizePx, cornerRadiusPercent) { IconRequest(key, sizePx, cornerRadiusPercent) }
+    // seeding from the cache avoids a blank frame when scrolling back to icons already rendered
+    val initial = remember(request, generation) { repository.cached(request)?.asImageBitmap() }
+    return produceState(initial, request, generation) {
+        value = repository.load(request)?.asImageBitmap()
+    }.value
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun AppIcon(
+    appKey: AppKey,
+    label: String,
+    iconSize: Dp,
+    cornerRadiusPercent: Int,
+    labelStyle: LabelStyle,
+    anchor: LaunchAnchor,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptics = LocalHapticFeedback.current
+    val bitmap = rememberAppIcon(appKey, iconSize, cornerRadiusPercent)
+    SideEffect { anchor.icon = bitmap }
+    Column(
+        modifier = modifier
+            .combinedClickable(
+                role = Role.Button,
+                onClickLabel = label,
+                onClick = onClick,
+                onLongClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                },
+            )
+            .padding(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        // the anchor sits on the icon itself so the reported source bounds cover the icon, not the label
+        Box(
+            modifier = Modifier
+                .size(iconSize)
+                .launchAnchor(anchor)
+                .graphicsLayer { alpha = if (anchor.hidden) 0f else 1f },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (bitmap != null) {
+                Image(bitmap = bitmap, contentDescription = null, modifier = Modifier.size(iconSize))
+            } else {
+                // a neutral plate keeps the grid stable while the icon loads or if it failed to render
+                Box(
+                    modifier = Modifier
+                        .size(iconSize)
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            RoundedCornerShape(percent = cornerRadiusPercent),
+                        ),
+                )
+            }
+        }
+        if (labelStyle != LabelStyle.Hidden) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = label,
+                style = labelTextStyle(labelStyle),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+@Composable
+private fun labelTextStyle(style: LabelStyle): TextStyle {
+    val base = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
+    return when (style) {
+        LabelStyle.OnWallpaper -> base.copy(
+            color = Color.White,
+            shadow = Shadow(color = Color.Black.copy(alpha = 0.55f), offset = Offset(0f, 1f), blurRadius = 4f),
+        )
+        LabelStyle.OnSurface, LabelStyle.Hidden -> base.copy(color = MaterialTheme.colorScheme.onSurface)
+    }
+}

@@ -5,3 +5,8 @@ plugins {
 android {
     namespace = "dev.gearturner.sparklauncher.feature.workspace"
 }
+
+dependencies {
+    implementation(project(":core:apps"))
+    implementation(project(":core:icons"))
+}

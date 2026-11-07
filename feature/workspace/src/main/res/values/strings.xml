@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="workspace_remove">Remove</string>
+    <string name="workspace_app_info">App info</string>
+    <string name="workspace_launch_failed">Could not open %1$s</string>
+    <string name="workspace_page_indicator">Page %1$d of %2$d</string>
+</resources>

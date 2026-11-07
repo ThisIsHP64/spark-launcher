@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="drawer_search_hint">Search apps</string>
+    <string name="drawer_clear_search">Clear search</string>
+    <string name="drawer_add_to_home">Add to home screen</string>
+    <string name="drawer_app_info">App info</string>
+    <string name="drawer_added">Added to home screen</string>
+    <string name="drawer_already_added">Already on the home screen</string>
+    <string name="drawer_no_space">No room on the home screen</string>
+    <string name="drawer_no_results">No apps match \"%1$s\"</string>
+    <string name="drawer_launch_failed">Could not open %1$s</string>
+</resources>

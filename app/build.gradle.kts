@@ -56,3 +56,7 @@ dependencies {
 tasks.withType<Test>().configureEach {
     dependsOn("processDebugMainManifest", "processReleaseMainManifest")
 }
+
+dependencies {
+    implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
+}

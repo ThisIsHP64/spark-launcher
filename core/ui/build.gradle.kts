@@ -10,6 +10,8 @@ android {
 dependencies {
     api(project(":core:model"))
     implementation(project(":core:theme"))
-    implementation(project(":core:icons"))
+    api(project(":core:icons"))
+    api(project(":core:apps"))
+    implementation(libs.kotlinx.coroutines.android)
     implementation(libs.compose.material.icons.extended)
 }

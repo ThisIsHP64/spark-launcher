@@ -20,6 +20,11 @@ A fast, clean Android home screen in the spirit of the Pixel launcher, with the 
 - Folders, hidden apps, renaming, app shortcuts, gestures, notification dots, work profile and private space support
 - Layout and settings backup and restore
 
+## App animations
+
+- **Opening an app** uses the system's default animation. Android 17 ignores launch animations requested by third party launchers, so Spark does not fake one.
+- **Swiping home** shrinks the app back into its icon and crossfades into it, using the same gesture handshake the system offers Nova and Niagara on Pixel phones. This only works for icons on the visible home page or dock; other apps use the system's default close animation.
+
 ## Building
 
 Requirements: JDK 21 and the Android SDK (platform 37).

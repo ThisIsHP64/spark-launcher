@@ -1,0 +1,326 @@
+package dev.gearturner.sparklauncher.feature.drawer
+
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.gearturner.sparklauncher.core.apps.LaunchRequest
+import dev.gearturner.sparklauncher.core.data.AddResult
+import dev.gearturner.sparklauncher.core.model.AppInfo
+import dev.gearturner.sparklauncher.core.ui.AppIcon
+import dev.gearturner.sparklauncher.core.ui.BaseIconSize
+import dev.gearturner.sparklauncher.core.ui.DrawerController
+import dev.gearturner.sparklauncher.core.ui.LabelStyle
+import dev.gearturner.sparklauncher.core.ui.rememberLaunchAnchor
+
+private val SearchBarHeight = 56.dp
+
+/** one inset for the top and sides so the search bar sits evenly inside the sheet */
+private val SearchBarInset = 16.dp
+
+// concentric with the pill shaped search bar, so the band around it reads as uniform at the corners too
+private val DrawerCornerRadius = SearchBarHeight / 2 + SearchBarInset
+
+@Composable
+fun AppDrawer(
+    viewModel: DrawerViewModel,
+    drawer: DrawerController,
+    modifier: Modifier = Modifier,
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val gridState = rememberLazyGridState()
+    // the field owns its text so typing never waits on the view model, which kept resetting the cursor
+    val searchState = rememberTextFieldState()
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val context = LocalContext.current
+    val resources = LocalResources.current
+
+    BackHandler(enabled = drawer.isOpen) { drawer.close() }
+
+    LaunchedEffect(searchState) {
+        snapshotFlow { searchState.text.toString() }.collect(viewModel::onQueryChange)
+    }
+    // a fully closed drawer resets so the next open starts at the top with an empty search
+    LaunchedEffect(drawer) {
+        snapshotFlow { drawer.value == 0f }.collect { closed ->
+            if (closed) {
+                keyboard?.hide()
+                focusManager.clearFocus()
+                searchState.clearText()
+                gridState.scrollToItem(0)
+            }
+        }
+    }
+    LaunchedEffect(viewModel, resources) {
+        viewModel.oneShotEvents.collect { event ->
+            val message = when (event) {
+                is DrawerEvent.LaunchFailed -> resources.getString(R.string.drawer_launch_failed, event.label)
+                is DrawerEvent.AddedToHome -> resources.getString(
+                    when (event.result) {
+                        is AddResult.Added -> R.string.drawer_added
+                        AddResult.AlreadyOnHome -> R.string.drawer_already_added
+                        AddResult.NoSpace -> R.string.drawer_no_space
+                    },
+                )
+            }
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    if (!drawer.isVisible) return
+
+    val closeOnOverscroll = remember(drawer) { DrawerNestedScroll(drawer) }
+    val headerDrag = rememberDraggableState { delta -> drawer.dragBy(-delta) }
+    val statusBars = WindowInsets.statusBars
+    val shape = RoundedCornerShape(topStart = DrawerCornerRadius, topEnd = DrawerCornerRadius)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                translationY = (1f - drawer.value) * size.height
+                alpha = (drawer.value * 2f).coerceAtMost(1f)
+            }
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.97f))
+            .nestedScroll(closeOnOverscroll),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarClearance(drawer, statusBars),
+        ) {
+            SearchField(
+                state = searchState,
+                onSubmit = { state.apps.firstOrNull()?.let { viewModel.launch(it, anchorlessRequest()) } },
+                modifier = Modifier
+                    .draggable(
+                        state = headerDrag,
+                        orientation = Orientation.Vertical,
+                        onDragStopped = { velocity -> drawer.settle(-velocity) },
+                    )
+                    .padding(SearchBarInset),
+            )
+            if (state.apps.isEmpty() && state.query.isNotBlank()) {
+                Text(
+                    text = stringResource(R.string.drawer_no_results, state.query),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                )
+            }
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(state.settings.drawerColumns),
+                state = gridState,
+                contentPadding = PaddingValues(
+                    start = 8.dp,
+                    end = 8.dp,
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
+                ),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(state.apps, key = { it.key.toString() }) { app ->
+                    DrawerItem(
+                        app = app,
+                        cornerRadiusPercent = state.settings.iconCornerRadiusPercent,
+                        iconScale = state.settings.iconScale,
+                        viewModel = viewModel,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * pads the content only by the part of the status bar the drawer's top edge has actually reached,
+ * so mid swipe the search bar sits right under the rounded edge instead of below an empty band.
+ * this runs in the layout phase, so dragging relayouts without recomposing the grid every frame.
+ */
+private fun Modifier.statusBarClearance(drawer: DrawerController, statusBars: WindowInsets): Modifier =
+    layout { measurable, constraints ->
+        val height = constraints.maxHeight
+        val drawerTop = ((1f - drawer.value) * height).toInt()
+        val clearance = (statusBars.getTop(this) - drawerTop).coerceAtLeast(0)
+        val placeable = measurable.measure(
+            constraints.copy(
+                minHeight = (constraints.minHeight - clearance).coerceAtLeast(0),
+                maxHeight = (height - clearance).coerceAtLeast(0),
+            ),
+        )
+        layout(placeable.width, placeable.height + clearance) { placeable.place(0, clearance) }
+    }
+
+/** enter from the keyboard has no icon to grow from, so the system default animation is used */
+private fun anchorlessRequest() = LaunchRequest()
+
+@Composable
+private fun SearchField(
+    state: TextFieldState,
+    onSubmit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    TextField(
+        state = state,
+        lineLimits = TextFieldLineLimits.SingleLine,
+        placeholder = { Text(stringResource(R.string.drawer_search_hint)) },
+        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+        trailingIcon = {
+            if (state.text.isNotEmpty()) {
+                IconButton(onClick = { state.clearText() }) {
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.drawer_clear_search))
+                }
+            }
+        },
+        // pressing enter opens the top result, the fastest way to launch anything by name
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+        onKeyboardAction = { onSubmit() },
+        shape = CircleShape,
+        colors = TextFieldDefaults.colors(
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(SearchBarHeight),
+    )
+}
+
+@Composable
+private fun DrawerItem(
+    app: AppInfo,
+    cornerRadiusPercent: Int,
+    iconScale: Float,
+    viewModel: DrawerViewModel,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val anchor = rememberLaunchAnchor()
+    Box(
+        modifier = Modifier.padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        AppIcon(
+            appKey = app.key,
+            label = app.label,
+            iconSize = BaseIconSize * iconScale,
+            cornerRadiusPercent = cornerRadiusPercent,
+            labelStyle = LabelStyle.OnSurface,
+            anchor = anchor,
+            onClick = { viewModel.launch(app, anchor.request()) },
+            onLongClick = { menuOpen = true },
+        )
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.drawer_add_to_home)) },
+                onClick = {
+                    menuOpen = false
+                    viewModel.addToHome(app)
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.drawer_app_info)) },
+                onClick = {
+                    menuOpen = false
+                    viewModel.openAppInfo(app, anchor.request())
+                },
+            )
+        }
+    }
+}
+
+/**
+ * lets the grid hand leftover scroll to the drawer: pulling down past the top closes it,
+ * and while partly closed, scrolling up reopens it before the grid moves.
+ */
+private class DrawerNestedScroll(private val drawer: DrawerController) : NestedScrollConnection {
+
+    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+        if (source == NestedScrollSource.UserInput && drawer.value < 1f && available.y < 0f) {
+            drawer.dragBy(-available.y)
+            return Offset(0f, available.y)
+        }
+        return Offset.Zero
+    }
+
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+        if (source == NestedScrollSource.UserInput && available.y > 0f) {
+            drawer.dragBy(-available.y)
+            return Offset(0f, available.y)
+        }
+        return Offset.Zero
+    }
+
+    override suspend fun onPreFling(available: Velocity): Velocity {
+        if (drawer.value < 1f) {
+            drawer.settle(-available.y)
+            return available
+        }
+        return Velocity.Zero
+    }
+}
