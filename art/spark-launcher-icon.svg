@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="512" height="512">
+  <title>Spark Launcher</title>
+  <!-- 108 unit canvas to match android adaptive icons; the glyph stays inside the 66 unit safe zone -->
+  <defs>
+    <!-- a flame: hot yellow at the top left burning down to deep red at the bottom right -->
+    <linearGradient id="fire" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFC233"/>
+      <stop offset="0.5" stop-color="#FF6B1A"/>
+      <stop offset="1" stop-color="#D3300C"/>
+    </linearGradient>
+  </defs>
+  <rect width="108" height="108" fill="url(#fire)"/>
+  <!-- home: a ring left open toward the upper right -->
+  <path d="M71.20 54.03 A20 20 0 1 1 54.97 37.80" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>
+  <!-- the spark leaving through the opening -->
+  <circle cx="72" cy="37" r="5.5" fill="#FFFFFF"/>
+</svg>

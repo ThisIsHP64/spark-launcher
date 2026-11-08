@@ -1,17 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- eyes are even-odd cutouts so the same drawable works as the themed monochrome layer -->
+<!--
+    home as a ring left open toward the upper right, with a spark leaving through the opening.
+    it is plain white shapes, so the same drawable doubles as the themed monochrome layer.
+    source artwork lives in art/spark-launcher-icon.svg
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <path
-        android:fillColor="#FFFFFF"
-        android:fillType="evenOdd"
-        android:pathData="M31,66A23,23 0,0 1,77 66Z M41.5,56a2.5,2.5 0,1 0,5 0a2.5,2.5 0,1 0,-5 0Z M61.5,56a2.5,2.5 0,1 0,5 0a2.5,2.5 0,1 0,-5 0Z" />
-    <path
-        android:pathData="M42,46L37.5,38.5M66,46L70.5,38.5"
-        android:strokeWidth="2.5"
+        android:pathData="M71.2,54.03A20,20 0,1 1,54.97 37.8"
+        android:strokeWidth="8"
         android:strokeColor="#FFFFFF"
         android:strokeLineCap="round" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M66.5,37a5.5,5.5 0,1 0,11 0a5.5,5.5 0,1 0,-11 0Z" />
 </vector>
