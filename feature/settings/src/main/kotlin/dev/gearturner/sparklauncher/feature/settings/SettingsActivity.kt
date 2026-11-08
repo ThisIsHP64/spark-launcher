@@ -34,7 +34,7 @@ class SettingsActivity : ComponentActivity() {
             SparkTheme(previewSeed?.let { loaded.copy(seedColor = it) } ?: loaded) {
                 CompositionLocalProvider(LocalIconRepository provides iconRepository) {
                     ProvideIconStyle(loaded) {
-                        SettingsScreen(loaded, viewModel, onBack = ::finish)
+                        SettingsScreen(loaded, viewModel)
                     }
                 }
             }

@@ -28,7 +28,7 @@ import dev.gearturner.sparklauncher.core.model.LauncherSettings
 import dev.gearturner.sparklauncher.core.model.PaletteStyleOption
 import dev.gearturner.sparklauncher.core.model.ThemeMode
 
-/** whether the resolved theme is dark, after the user's light, dark or system choice */
+/** whether the resolved theme is dark, after the user's light, dark, or system choice */
 val LocalSparkDarkTheme = staticCompositionLocalOf { false }
 
 /**
@@ -60,7 +60,8 @@ fun SparkTheme(
             dynamicColorScheme(seedColor = seed, isDark = dark, isAmoled = false, style = settings.paletteStyle.toKolor())
         }
     }
-    CompositionLocalProvider(LocalSparkDarkTheme provides dark) {
+    val dotColor = remember(colors, settings.paletteStyle, dark) { colors.notificationDotColor(settings.paletteStyle, dark) }
+    CompositionLocalProvider(LocalSparkDarkTheme provides dark, LocalSparkNotificationDotColor provides dotColor) {
         // the expressive theme brings the springier motion and rounder shapes current pixel software uses
         MaterialExpressiveTheme(colorScheme = colors, motionScheme = MotionScheme.expressive(), content = content)
     }

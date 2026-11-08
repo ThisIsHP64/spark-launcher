@@ -35,7 +35,7 @@ sealed interface DropPlan {
  * decides what a drop means, following the pixel launcher's rules: empty cells take the item,
  * app on app makes a folder, anything droppable on a folder joins it, and everything else is
  * refused rather than shoving other icons around. [columns] and [rows] are whole cells, while home
- * targets, placements and widget spans are in units of 1 / [unit] of a cell. an icon only merges
+ * targets, placements, and widget spans are in units of 1 / [unit] of a cell. an icon only merges
  * when it lands exactly on the other item's spot, so one dropped half over another is refused.
  */
 fun planDrop(

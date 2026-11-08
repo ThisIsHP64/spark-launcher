@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_app_label">Spark Settings</string>
-    <string name="settings_title">Spark settings</string>
+    <string name="settings_title">Spark Settings</string>
     <string name="settings_back">Back</string>
+    <string name="settings_section_appearance">Appearance</string>
     <string name="settings_section_colors">Colors</string>
+    <string name="settings_section_icon_colors">Icon colors</string>
     <string name="settings_section_icons">Icons</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_theme_system">System</string>
@@ -37,9 +39,9 @@
     <string name="settings_themed_fallback_summary">Create themed icons for apps that do not provide one</string>
     <string name="settings_color_swatch">Color %1$s</string>
     <string name="settings_page_look">Colors and icons</string>
-    <string name="settings_page_look_summary">Theme, palette, icon shape, themed icons and icon packs</string>
+    <string name="settings_page_look_summary">Theme, palette, icon shape, themed icons, and icon packs</string>
     <string name="settings_page_home">Home screen</string>
-    <string name="settings_page_home_summary">Layout mode, grid, dock, icon size and labels</string>
+    <string name="settings_page_home_summary">Layout mode, grid, dock, icon size, and labels</string>
     <string name="settings_page_drawer">App drawer</string>
     <string name="settings_page_drawer_summary">Columns and labels</string>
     <string name="settings_home_mode">Layout</string>
@@ -47,8 +49,12 @@
     <string name="settings_home_mode_home_only">All apps on home</string>
     <string name="settings_home_mode_drawer_summary">Home holds your favorites. Swipe up for every app.</string>
     <string name="settings_home_mode_home_only_summary">Every app lives on your home pages, and new apps are added automatically. Swipe up to search. Each layout is kept separately, so switching back restores the other one.</string>
-    <string name="settings_section_grid">Grid</string>
+    <string name="settings_section_layout">Layout</string>
+    <string name="settings_section_grid">Grid and icon size</string>
+    <string name="settings_section_labels">Labels and dots</string>
     <string name="settings_grid_preview">Grid of %1$d columns by %2$d rows with %3$d dock icons</string>
+    <string name="settings_drawer_preview">Drawer of %1$d columns</string>
+    <string name="settings_drawer_preview_labels">Drawer of %1$d columns with labels</string>
     <string name="settings_columns">Columns</string>
     <string name="settings_rows">Rows</string>
     <string name="settings_dock">Dock icons</string>
@@ -73,9 +79,9 @@
     <string name="settings_cancel">Cancel</string>
     <string name="settings_continue">Continue</string>
     <string name="settings_page_gestures">Gestures</string>
-    <string name="settings_page_gestures_summary">Swipes, double tap and the home button</string>
+    <string name="settings_page_gestures_summary">Swipes, double tap, and the home button</string>
     <string name="settings_page_search">Search</string>
-    <string name="settings_page_search_summary">Shortcuts, settings and contacts in results</string>
+    <string name="settings_page_search_summary">Shortcuts, settings, and contacts in results</string>
     <string name="settings_service_title">Turn on the accessibility service</string>
     <string name="settings_service_body">Locking the screen and showing recent apps only work through an accessibility service. Spark\'s service cannot read the screen or what you type, and Spark has no internet access.</string>
     <string name="settings_service_open">Open accessibility settings</string>
@@ -105,4 +111,22 @@
     <string name="settings_search_contacts_summary">Off unless you turn it on. Names are read on your phone only</string>
     <string name="settings_search_contacts_revoked">Contacts access was removed. Turn this on again to allow it</string>
     <string name="settings_search_contacts_explain">Spark will ask for access to your contacts so search can show matching names. Names are only read on your phone while you search. Nothing is stored or sent anywhere, and Spark has no internet access.</string>
+    <string name="settings_page_about">About</string>
+    <string name="settings_page_about_summary">Version, credits, and licenses</string>
+    <string name="settings_about_app_name">Spark Launcher</string>
+    <string name="settings_about_version">Version %1$s</string>
+    <string name="settings_about_tagline">A fast, private home screen. Free and open source.</string>
+    <string name="settings_about_credits">Credits</string>
+    <string name="settings_about_author">ThisIsHP64 (Hunter Pageau)</string>
+    <string name="settings_about_author_role">Creator and developer</string>
+    <string name="settings_about_legal">Privacy and licenses</string>
+    <string name="settings_about_privacy">Private by design</string>
+    <string name="settings_about_privacy_summary">No ads, no tracking, and no internet access. Everything stays on this phone.</string>
+    <string name="settings_about_license">License</string>
+    <string name="settings_about_libraries">Open source licenses</string>
+    <string name="settings_about_libraries_summary">The libraries Spark is built on</string>
+    <string name="settings_about_copyright">Copyright © 2026 Hunter Pageau and Spark Launcher contributors</string>
+    <string name="settings_license_gpl3">GNU General Public License v3.0 or later</string>
+    <string name="settings_license_apache2">Apache License 2.0</string>
+    <string name="settings_license_mit">MIT License</string>
 </resources>

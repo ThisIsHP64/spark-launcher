@@ -15,6 +15,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.stateDescription
 import dev.gearturner.sparklauncher.core.apps.DotKey
 import androidx.compose.foundation.Image
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import dev.gearturner.sparklauncher.core.theme.LocalSparkNotificationDotColor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -114,7 +119,11 @@ fun AppIcon(
 ) {
     val bitmap = rememberIcon(source, iconSize)
     SideEffect { anchor.icon = bitmap }
-    val accent = remember(bitmap) { bitmap?.accentColor() }
+    val style = LocalIconStyle.current
+    // themed icons are drawn in palette colors, so extracting an accent would just return the glyph color
+    val themedDots = style.themed && style.themedFallback
+    // the accent only colors the notification dot, so icons without one skip the pixel scan entirely
+    val accent = remember(bitmap, themedDots, showDot) { if (themedDots || !showDot) null else bitmap?.accentColor() }
     LauncherTile(
         label = label,
         iconSize = iconSize,
@@ -124,7 +133,7 @@ fun AppIcon(
         onLongClick = onLongClick,
         modifier = modifier,
         dragHandler = dragHandler,
-        dotColor = if (showDot) accent ?: MaterialTheme.colorScheme.primary else null,
+        dotColor = if (showDot) accent ?: fallbackDotColor() else null,
         accessibilityActions = accessibilityActions,
     ) {
         if (bitmap != null) {
@@ -144,7 +153,7 @@ fun AppIcon(
 }
 
 /**
- * the shared shape of everything on home: an icon area with a label, tap, long press and drag.
+ * the shared shape of everything on home: an icon area with a label, tap, long press, and drag.
  * apps draw a bitmap in it and folders draw a preview of their contents.
  */
 @Composable
@@ -204,7 +213,28 @@ fun LauncherTile(
                 .graphicsLayer { alpha = if (anchor.hidden) 0f else 1f },
             contentAlignment = Alignment.Center,
         ) {
-            icon()
+            // the icon is cut away around the dot so wallpaper shows through, like the pixel badge
+            val hole by animateFloatAsState(if (dotColor != null) 1f else 0f, label = "dotKnockout")
+            Box(
+                modifier = Modifier
+                    .size(iconSize)
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        if (hole > 0f) {
+                            val dot = size.width * DOT_FRACTION
+                            drawCircle(
+                                color = Color.Black,
+                                radius = (dot / 2 + KNOCKOUT_GAP.toPx()) * hole,
+                                center = Offset(size.width - dot / 2, dot / 2),
+                                blendMode = BlendMode.Clear,
+                            )
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                icon()
+            }
             NotificationDot(dotColor, iconSize, Modifier.align(Alignment.TopEnd))
         }
         if (labelStyle != LabelStyle.Hidden) {
@@ -288,9 +318,14 @@ private fun NotificationDot(color: Color?, iconSize: Dp, modifier: Modifier) {
     }
 }
 
+/** the dot color for tiles with no color of their own, such as folders and themed icons */
+@Composable
+fun fallbackDotColor(): Color = LocalSparkNotificationDotColor.current
+
 /** apps with a notification dot, by package and profile; empty while dots are off or access is missing */
 val LocalNotificationDots = compositionLocalOf<Set<DotKey>> { emptySet() }
 
-private const val DOT_FRACTION = 0.22f
+private const val DOT_FRACTION = 0.27f
+private val KNOCKOUT_GAP = 3.dp
 private const val AMBIENT_SHADOW_ALPHA = 0.6f
 private const val KEY_SHADOW_ALPHA = 0.85f

@@ -31,6 +31,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import dev.gearturner.sparklauncher.core.apps.AppsRepository
+import dev.gearturner.sparklauncher.core.apps.ShortcutsRepository
 import dev.gearturner.sparklauncher.core.data.AddResult
 import dev.gearturner.sparklauncher.core.data.SettingsRepository
 import dev.gearturner.sparklauncher.core.data.ShortcutPlacement
@@ -64,6 +65,8 @@ class AddItemActivity : ComponentActivity() {
     @Inject lateinit var userManager: UserManager
 
     @Inject lateinit var apps: AppsRepository
+
+    @Inject lateinit var shortcuts: ShortcutsRepository
 
     @Inject lateinit var placement: ShortcutPlacement
 
@@ -107,7 +110,7 @@ class AddItemActivity : ComponentActivity() {
     private fun showShortcut(request: LauncherApps.PinItemRequest, info: ShortcutInfo) {
         val label = info.shortLabel?.toString().orEmpty().ifEmpty { info.id }
         val icon = loadIcon(info)
-        showDialog(label, onAdd = { acceptShortcut(request, info, label) }) {
+        showDialog(label, onAdd = { acceptShortcut(request, info) }) {
             if (icon != null) Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(56.dp))
         }
     }
@@ -143,15 +146,23 @@ class AddItemActivity : ComponentActivity() {
         }
     }
 
-    private fun acceptShortcut(request: LauncherApps.PinItemRequest, info: ShortcutInfo, label: String) {
+    /**
+     * this activity is exported, so any app can start it with a request it made up and answer that
+     * request's own checks. only the system's pinned copy is trusted, which also means the label and
+     * owning app shown on home come from the system rather than from whoever sent the request.
+     */
+    private fun acceptShortcut(request: LauncherApps.PinItemRequest, requested: ShortcutInfo) {
         lifecycleScope.launch {
             val accepted = acceptSafely { request.accept() }
-            val serial = userManager.getSerialNumberForUser(info.userHandle)
-            val owner = ownerFor(info, serial)
-            val message = if (!accepted || owner == null) {
+            val pinned = if (accepted) shortcuts.pinnedShortcut(requested.`package`, requested.id, requested.userHandle) else null
+            val serial = pinned?.let { userManager.getSerialNumberForUser(it.userHandle) }
+            val owner = if (pinned != null && serial != null) ownerFor(pinned, serial) else null
+            val message = if (pinned == null || serial == null || owner == null) {
+                if (accepted && pinned == null) Log.w(TAG, "pin request was not backed by a pinned shortcut")
                 R.string.add_shortcut_failed
             } else {
-                val shortcut = AppShortcut(ShortcutKey(info.`package`, info.id, serial), label, null, info.rank, true)
+                val label = pinned.shortLabel?.toString().orEmpty().ifEmpty { pinned.id }
+                val shortcut = AppShortcut(ShortcutKey(pinned.`package`, pinned.id, serial), label, null, pinned.rank, true)
                 val current = settings.current()
                 messageFor(placement.addAccepted(shortcut, owner, current.homeColumns, current.homeRows))
             }
@@ -232,7 +243,7 @@ class AddItemActivity : ComponentActivity() {
         const val TAG = "AddItemActivity"
         const val DEFAULT_COLUMNS = 4
         const val DEFAULT_ROWS = 5
-        // status bar, page dots, dock and nav bar together take roughly this much height
+        // status bar, page dots, dock, and nav bar together take roughly this much height
         const val RESERVED_HEIGHT_DP = 220f
     }
 }

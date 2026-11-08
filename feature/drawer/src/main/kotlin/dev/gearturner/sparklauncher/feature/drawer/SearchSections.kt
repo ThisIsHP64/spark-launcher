@@ -56,7 +56,7 @@ internal fun LazyGridScope.calculatorRow(expression: String, result: String) {
 }
 
 /**
- * shortcuts, contacts and settings as full width rows below the apps. [topHit] is set when no app
+ * shortcuts, contacts, and settings as full width rows below the apps. [topHit] is set when no app
  * matched, so the first row here is the one the go key opens and gets the highlight.
  */
 internal fun LazyGridScope.searchSections(results: SearchResults, topHit: TopHit?, viewModel: DrawerViewModel) {

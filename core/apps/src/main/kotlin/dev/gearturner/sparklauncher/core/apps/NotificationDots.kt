@@ -39,7 +39,7 @@ fun badgeable(facts: NotificationFacts): Boolean =
 
 /**
  * which apps currently have a notification worth a dot. the listener service feeds it; only the
- * owning app and profile of each notification is kept, never its title, text or anything else.
+ * owning app and profile of each notification is kept, never its title, text, or anything else.
  */
 @Singleton
 class NotificationDots @Inject constructor(@ApplicationContext private val context: Context) {

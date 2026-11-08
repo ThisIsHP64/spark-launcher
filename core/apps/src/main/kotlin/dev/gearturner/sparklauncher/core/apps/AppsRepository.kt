@@ -75,7 +75,7 @@ class AppsRepository @Inject constructor(
     /** a package fully uninstalled from one profile, as package name and profile serial */
     val packageRemovals: SharedFlow<Pair<String, Long>> = removedPackages.asSharedFlow()
 
-    /** fires whenever any app publishes, updates or removes shortcuts, or apps change */
+    /** fires whenever any app publishes, updates, or removes shortcuts, or apps change */
     val shortcutChanges: SharedFlow<Unit> = changedShortcuts.asSharedFlow()
 
     /** null until the first load finishes, which lets the ui tell "loading" from "no apps" */
@@ -146,7 +146,7 @@ class AppsRepository @Inject constructor(
     }
 
     /**
-     * picks the user's default phone, messages, browser and camera apps for the starter dock,
+     * picks the user's default phone, messages, browser, and camera apps for the starter dock,
      * in that order, skipping any role that has no default or resolves to the system chooser.
      */
     suspend fun defaultDockApps(): List<AppKey> {

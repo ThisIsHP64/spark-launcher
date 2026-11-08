@@ -22,7 +22,13 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
-        <!-- used only to find the default phone, browser and camera apps for the starter dock -->
+        <!-- widget providers are receivers for this action; seeing them lets the picker list widgets from apps with no launcher icon -->
+        <intent>
+            <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent>
+        <!-- pixel's battery widget lives in an app with no launcher icon and a non exported provider, which no intent query can reveal -->
+        <package android:name="com.google.android.settings.intelligence" />
+        <!-- used only to find the default phone, browser, and camera apps for the starter dock -->
         <intent>
             <action android:name="android.intent.action.DIAL" />
         </intent>

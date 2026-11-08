@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material.icons.Icons
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,8 +55,16 @@ private val ActionOrder = listOf(
 
 internal fun LazyListScope.gesturesPage(settings: LauncherSettings, viewModel: SettingsViewModel) {
     item { ServiceCard(settings, viewModel) }
-    Gesture.entries.forEach { gesture ->
-        item(key = gesture.name) { GestureRow(gesture, settings, viewModel) }
+    item {
+        SettingsCard {
+            Gesture.entries.forEachIndexed { index, gesture ->
+                // keyed so each row keeps its own dialog state when the list above it changes
+                key(gesture.name) {
+                    if (index > 0) CardDivider()
+                    GestureRow(gesture, settings, viewModel)
+                }
+            }
+        }
     }
 }
 
@@ -176,20 +185,20 @@ private fun actionTitle(action: GestureAction, mode: HomeMode): String = stringR
 
 internal fun LazyListScope.searchPage(settings: LauncherSettings, viewModel: SettingsViewModel) {
     item {
-        SwitchRow(
-            title = stringResource(R.string.settings_search_shortcuts),
-            summary = stringResource(R.string.settings_search_shortcuts_summary),
-            checked = settings.searchShortcuts,
-        ) { on -> viewModel.update { it.copy(searchShortcuts = on) } }
+        SettingsCard {
+            SwitchRow(
+                title = stringResource(R.string.settings_search_shortcuts),
+                summary = stringResource(R.string.settings_search_shortcuts_summary),
+                checked = settings.searchShortcuts,
+            ) { on -> viewModel.update { it.copy(searchShortcuts = on) } }
+            SwitchRow(
+                title = stringResource(R.string.settings_search_settings),
+                summary = stringResource(R.string.settings_search_settings_summary),
+                checked = settings.searchSettings,
+            ) { on -> viewModel.update { it.copy(searchSettings = on) } }
+            ContactsRow(settings, viewModel)
+        }
     }
-    item {
-        SwitchRow(
-            title = stringResource(R.string.settings_search_settings),
-            summary = stringResource(R.string.settings_search_settings_summary),
-            checked = settings.searchSettings,
-        ) { on -> viewModel.update { it.copy(searchSettings = on) } }
-    }
-    item { ContactsRow(settings, viewModel) }
 }
 
 /**

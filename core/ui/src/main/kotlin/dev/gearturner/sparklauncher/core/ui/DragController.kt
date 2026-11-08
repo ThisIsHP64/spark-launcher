@@ -33,7 +33,7 @@ enum class DragOrigin { Home, Folder, Drawer, WidgetPicker }
 
 @Immutable
 sealed interface DragPayload {
-    /** an item already on home, in the dock or in a folder; widgets carry their size in half cells */
+    /** an item already on home, in the dock, or in a folder; widgets carry their size in half cells */
     data class Existing(
         val itemId: Long,
         val app: AppKey?,
@@ -87,7 +87,7 @@ fun interface DropHandler {
 }
 
 /**
- * the one drag in progress, shared by home, folders and the drawer so a drag can start on one
+ * the one drag in progress, shared by home, folders, and the drawer so a drag can start on one
  * surface and end on another.
  */
 @Stable

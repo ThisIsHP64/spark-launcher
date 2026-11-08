@@ -22,7 +22,7 @@ import kotlin.math.abs
 
 /**
  * vertical swipes anywhere on home. this runs after the pager and tiles have seen each event, so a
- * page flip, a widget's own scrolling or an icon drag always wins and this gesture backs off.
+ * page flip, a widget's own scrolling, or an icon drag always wins and this gesture backs off.
  *
  * a one finger swipe up drags the drawer with the finger when that is its action, as on the pixel.
  * every other swipe fires once it has travelled far enough, so the shade opens while the finger

@@ -13,7 +13,7 @@ fun normalizeForSearch(text: String): String =
 /**
  * filters [items] while keeping their incoming order within each tier: exact labels, then label
  * prefixes, then word or keyword prefixes, then any substring. every result list in search uses
- * this so a query ranks apps, shortcuts and settings the same way.
+ * this so a query ranks apps, shortcuts, and settings the same way.
  *
  * [keywords] count as words of the label, so "wifi" finds a settings page titled "Internet".
  * [fallback] text only matches as a substring, which suits package names that would otherwise

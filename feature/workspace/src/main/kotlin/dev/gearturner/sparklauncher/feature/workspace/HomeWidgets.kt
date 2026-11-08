@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AspectRatio
 import androidx.compose.material.icons.outlined.Close
@@ -292,7 +293,8 @@ private fun ResizeHandle(center: Offset, onDrag: (Offset) -> Unit, onRelease: ()
     // the gesture outlives recompositions, so it must read the newest size each time, not the first one
     val latestDrag by rememberUpdatedState(onDrag)
     val latestRelease by rememberUpdatedState(onRelease)
-    val size = 28.dp
+    // the standard minimum touch target, so a thumb that lands off center still grabs the handle
+    val size = 48.dp
     val half = with(density) { size.toPx() / 2f }
     Box(
         modifier = Modifier
@@ -300,6 +302,9 @@ private fun ResizeHandle(center: Offset, onDrag: (Offset) -> Unit, onRelease: ()
             // talkback resizes through the frame's actions; a handle alone has nothing to announce
             .clearAndSetSemantics { }
             .size(size)
+            // handles of widgets in the outer columns sit inside the back gesture zone, which would
+            // otherwise take the drag; the exclusion is read after offset and size so it matches the box
+            .systemGestureExclusion()
             .pointerInput(Unit) {
                 var total = Offset.Zero
                 detectDragGestures(

@@ -4,7 +4,7 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import dev.gearturner.sparklauncher.core.apps.DotKey
 import dev.gearturner.sparklauncher.core.apps.dotKey
 import dev.gearturner.sparklauncher.core.ui.LocalNotificationDots
-import androidx.compose.material3.MaterialTheme
+import dev.gearturner.sparklauncher.core.ui.fallbackDotColor
 
 import dev.gearturner.sparklauncher.core.model.SUBGRID
 
@@ -190,7 +190,7 @@ internal val LocalDropHover = compositionLocalOf<Long?> { null }
 private const val DROP_TARGET_SCALE = 1.15f
 
 /**
- * an app or shortcut, on home, in the dock or inside an open folder. [registryPage] is null inside
+ * an app or shortcut, on home, in the dock, or inside an open folder. [registryPage] is null inside
  * folders, whose apps are not visible targets for the swipe home animation.
  */
 @Composable
@@ -307,7 +307,7 @@ private fun FolderTileView(
             onLongClick = { menuOpen = true },
             dragHandler = dragHandler,
             // a folder holds many apps with different colors, so its dot takes the theme color instead
-            dotColor = MaterialTheme.colorScheme.primary.takeIf { folder.children.any { it.hasDot(dots) } },
+            dotColor = fallbackDotColor().takeIf { folder.children.any { it.hasDot(dots) } },
             accessibilityActions = accessibilityActions,
         ) {
             FolderPreview(folder, iconSize)
@@ -325,7 +325,7 @@ private fun FolderTileView(
     }
 }
 
-/** one cell up, down, left or right, or to the neighbouring page, as talkback custom actions */
+/** one cell up, down, left, or right, or to the neighbouring page, as talkback custom actions */
 @Composable
 internal fun moveActions(itemId: Long, viewModel: HomeViewModel): List<CustomAccessibilityAction> {
     val left = stringResource(R.string.workspace_a11y_move_left)

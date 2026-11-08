@@ -172,6 +172,7 @@ fun HomeScreen(
     // while an open folder owns the drag its own edges flip its pages, so home must stay put underneath
     EdgePageFlip(dragController, geometry, pagerState, suspended = { openFolder != null && !folderDrag.leftPanel })
     val backdrop = rememberGraphicsLayer()
+    val recordBackdrop = session != null
 
     val hovered by remember(dragController) {
         derivedStateOf {
@@ -249,16 +250,22 @@ fun HomeScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    // the drawer, widgets and settings are otherwise reached by a swipe or a long press on
+                    // the drawer, widgets, and settings are otherwise reached by a swipe or a long press on
                     // empty space, neither of which talkback can do, so home offers them as actions
                     .semantics {
                         contentDescription = homeLabel
                         customActions = homeActions
                     }
-                    // recorded so the drop bar can draw a blurred copy of what sits behind it
+                    // recorded so the drop bar can draw a blurred copy of what sits behind it; only a drag
+                    // shows the bar, so otherwise home draws straight through instead of re-recording
+                    // every page of it on each scroll frame
                     .drawWithContent {
-                        backdrop.record { this@drawWithContent.drawContent() }
-                        drawLayer(backdrop)
+                        if (recordBackdrop) {
+                            backdrop.record { this@drawWithContent.drawContent() }
+                            drawLayer(backdrop)
+                        } else {
+                            drawContent()
+                        }
                     }
                     .homeSwipes(
                         drawer = drawer,
@@ -529,7 +536,7 @@ private fun PageIndicator(pagerState: PagerState) {
 private val EDGE_ZONE = 32.dp
 private const val EDGE_DWELL_MS = 550L
 
-/** the app, folder or widget covering [target] on home or in the dock, if any */
+/** the app, folder, or widget covering [target] on home or in the dock, if any */
 private fun tileAt(state: HomeUiState, target: DropTarget): HomeTile? = when (target) {
     is DropTarget.Desktop -> state.pages.getOrNull(target.page)?.firstOrNull { tile ->
         val p = tile.placement

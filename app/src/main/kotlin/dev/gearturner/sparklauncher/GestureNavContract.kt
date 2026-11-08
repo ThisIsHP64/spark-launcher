@@ -16,6 +16,12 @@ import androidx.core.os.BundleCompat
  * when the user swipes home from an app, the home intent carries this contract; replying with the
  * app icon's screen rectangle lets the system shrink the window into that icon instead of a
  * generic spot. the extra names are fixed by the system side, matching aosp launcher3.
+ *
+ * the home activity is exported, so any app in front can send a home intent carrying its own
+ * contract and learn whether an app's icon sits on the visible page. android gives no reliable way
+ * to tell the system's recents component from another app here, since it does not share its
+ * identity with the activity it starts, so the sender is not checked. what such an app could learn
+ * is limited to one icon's position, and the floating icon it is handed removes itself within seconds.
  */
 class GestureNavContract private constructor(
     val component: ComponentName,
@@ -67,6 +73,8 @@ class GestureNavContract private constructor(
                 null
             } ?: return null
             intent?.removeExtra(EXTRA_GESTURE_CONTRACT)
+            // the system only attaches the contract to a home intent, so it is ignored on any other route in
+            if (!isHomeIntent(intent?.action, intent?.categories)) return null
             return try {
                 val component = BundleCompat.getParcelable(extras, Intent.EXTRA_COMPONENT_NAME, ComponentName::class.java)
                 val user = BundleCompat.getParcelable(extras, Intent.EXTRA_USER, UserHandle::class.java)
@@ -81,5 +89,8 @@ class GestureNavContract private constructor(
                 null
             }
         }
+
+        internal fun isHomeIntent(action: String?, categories: Set<String>?): Boolean =
+            action == Intent.ACTION_MAIN && categories?.contains(Intent.CATEGORY_HOME) == true
     }
 }

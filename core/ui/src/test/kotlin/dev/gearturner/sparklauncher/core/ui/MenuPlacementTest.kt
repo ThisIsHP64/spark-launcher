@@ -7,7 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
-/** a 1000 by 2000 window, a 400 by 300 menu, 10 pixel margins and a 5 pixel gap */
+/** a 1000 by 2000 window, a 400 by 300 menu, 10 pixel margins, and a 5 pixel gap */
 class MenuPlacementTest {
 
     private val window = IntRect(0, 0, 1000, 2000)

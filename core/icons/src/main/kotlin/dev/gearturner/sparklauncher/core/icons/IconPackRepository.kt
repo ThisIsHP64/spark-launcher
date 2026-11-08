@@ -89,7 +89,7 @@ class IconPackRepository @Inject constructor(
         return drawable(pack.resources, packPackage, name, density)
     }
 
-    /** backgrounds, overlay, mask and scale for styling apps the pack does not cover */
+    /** backgrounds, overlay, mask, and scale for styling apps the pack does not cover */
     suspend fun styling(packPackage: String): AppFilter? = load(packPackage)?.filter
 
     /** names for the manual icon picker: the pack's own list when it has one, else its mapped icons */
@@ -126,7 +126,8 @@ class IconPackRepository @Inject constructor(
             if (id != 0) return resources.getXml(id).use(read)
             return resources.assets.open("$name.xml").use { stream ->
                 val parser = Xml.newPullParser().apply {
-                    // external entities stay off; a pack's xml has no business reaching outside itself
+                    // android's pull parser never fetches external entities or doctype references, so
+                    // a pack's xml cannot reach outside itself; namespaces are unused by appfilter files
                     setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
                     setInput(stream, null)
                 }
@@ -143,14 +144,27 @@ class IconPackRepository @Inject constructor(
         }
     }
 
+    /** every pack image, including backgrounds, masks, and picker previews, is loaded through here */
     private fun drawable(resources: Resources, packPackage: String, name: String, density: Int): Drawable? = try {
         @Suppress("DiscouragedApi") // packs are only addressable by name, never by a compiled id
         val id = resources.getIdentifier(name, "drawable", packPackage)
-        if (id == 0) null else resources.getDrawableForDensity(id, density, null)
+        when {
+            id == 0 -> null
+            !PackImageLimits.fits(resources, id, density) -> {
+                Log.w(TAG, "skipped oversized $name in $packPackage")
+                null
+            }
+            else -> resources.getDrawableForDensity(id, density, null)
+        }
     } catch (e: Resources.NotFoundException) {
         null
     } catch (e: RuntimeException) {
         Log.w(TAG, "could not load $name from $packPackage", e)
+        null
+    } catch (e: OutOfMemoryError) {
+        // an xml drawable can still wrap a huge image the header check never sees. the failed
+        // allocation was never handed out, so dropping this one icon leaves home running normally
+        Log.w(TAG, "$name in $packPackage is too large to load", e)
         null
     }
 

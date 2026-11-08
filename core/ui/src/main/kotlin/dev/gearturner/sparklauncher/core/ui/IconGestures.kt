@@ -23,7 +23,7 @@ interface IconDragHandler {
 }
 
 /**
- * tap, long press and long press then drag in one detector, because the stock modifiers each
+ * tap, long press, and long press then drag in one detector, because the stock modifiers each
  * claim the long press and would fire a tap after a held finger lifts. a long press opens the
  * menu; moving past the touch slop afterwards turns it into a drag, like the pixel launcher.
  */

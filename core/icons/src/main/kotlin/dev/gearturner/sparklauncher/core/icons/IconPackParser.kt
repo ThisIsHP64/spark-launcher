@@ -6,7 +6,7 @@ import org.xmlpull.v1.XmlPullParser
 data class AppFilter(
     /** "package/class" to drawable name */
     val components: Map<String, String>,
-    /** backgrounds, overlays and masks used to style apps the pack has no icon for */
+    /** backgrounds, overlays, and masks used to style apps the pack has no icon for */
     val iconBacks: List<String> = emptyList(),
     val iconUpon: String? = null,
     val iconMask: String? = null,

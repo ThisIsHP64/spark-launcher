@@ -107,6 +107,13 @@ class ShortcutsRepository @Inject constructor(
             }
         }
 
+    /**
+     * the system's own record of a shortcut spark has pinned, or null when it holds none. pin requests
+     * are answered by whichever app sent them, so this is the only trustworthy proof one was accepted.
+     */
+    suspend fun pinnedShortcut(packageName: String, shortcutId: String, user: UserHandle): ShortcutInfo? =
+        withContext(Dispatchers.IO) { launcherApps.findPinnedShortcut(packageName, shortcutId, user) }
+
     /** looks the shortcut up among pinned ones first, then any shortcut the app still publishes */
     suspend fun iconDrawable(key: ShortcutKey, density: Int): Drawable? = withContext(Dispatchers.IO) {
         val info = pinnedIndex[key] ?: findShortcut(key) ?: return@withContext null
@@ -184,3 +191,27 @@ class ShortcutsRepository @Inject constructor(
         const val MAX_MENU_SHORTCUTS = 4
     }
 }
+
+/**
+ * the pinned shortcut with this package and id, straight from the system. kept apart from the
+ * repository so it can be checked against a real launcherapps without the rest of the app.
+ */
+internal fun LauncherApps.findPinnedShortcut(packageName: String, shortcutId: String, user: UserHandle): ShortcutInfo? {
+    val query = ShortcutQuery()
+        .setPackage(packageName)
+        .setShortcutIds(listOf(shortcutId))
+        .setQueryFlags(ShortcutQuery.FLAG_MATCH_PINNED)
+    return try {
+        pinnedMatch(getShortcuts(query, user).orEmpty(), packageName, shortcutId)
+    } catch (e: SecurityException) {
+        // not the default home app, or a profile that does not belong to this device user
+        null
+    } catch (e: IllegalStateException) {
+        // the profile is locked
+        null
+    }
+}
+
+/** the query already narrows results, but each one is checked again so nothing else is mistaken for proof */
+internal fun pinnedMatch(results: List<ShortcutInfo>, packageName: String, shortcutId: String): ShortcutInfo? =
+    results.firstOrNull { it.`package` == packageName && it.id == shortcutId && it.isPinned }

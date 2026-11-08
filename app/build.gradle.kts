@@ -10,11 +10,25 @@ android {
     defaultConfig {
         applicationId = "dev.gearturner.sparklauncher"
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0"
+    }
+
+    signingConfigs {
+        // credentials come from the environment so nothing secret lives in the repo; without them release stays unsigned
+        val keystorePath = providers.environmentVariable("SPARK_KEYSTORE_FILE").orNull
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = providers.environmentVariable("SPARK_STORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("SPARK_KEY_ALIAS").get()
+                keyPassword = storePassword
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

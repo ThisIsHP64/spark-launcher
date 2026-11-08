@@ -1,6 +1,22 @@
 package dev.gearturner.sparklauncher.feature.settings
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
@@ -11,6 +27,7 @@ import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.geometry.CornerRadius
@@ -46,7 +63,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -91,191 +109,317 @@ private val SwatchColors = listOf(
     0xFFEF6C00, 0xFFD84315, 0xFFC2185B, 0xFF8E24AA, 0xFF5E35B1, 0xFF6D4C41,
 ).map { it.toInt() }
 
-private enum class SettingsPage { MAIN, LOOK, HOME, DRAWER, GESTURES, SEARCH }
+private enum class SettingsPage { MAIN, LOOK, HOME, DRAWER, GESTURES, SEARCH, ABOUT, LIBRARIES, LICENSE }
 
 /** a short list of sections, each its own page, so no single page grows into a wall of options */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewModel, onBack: () -> Unit) {
+internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewModel) {
     var page by rememberSaveable { mutableStateOf(SettingsPage.MAIN) }
-    BackHandler(enabled = page != SettingsPage.MAIN) { page = SettingsPage.MAIN }
-    val title = when (page) {
-        SettingsPage.MAIN -> stringResource(R.string.settings_title)
-        SettingsPage.LOOK -> stringResource(R.string.settings_page_look)
-        SettingsPage.HOME -> stringResource(R.string.settings_page_home)
-        SettingsPage.DRAWER -> stringResource(R.string.settings_page_drawer)
-        SettingsPage.GESTURES -> stringResource(R.string.settings_page_gestures)
-        SettingsPage.SEARCH -> stringResource(R.string.settings_page_search)
+    var license by rememberSaveable { mutableStateOf(LicenseKind.GPL3) }
+    val parent = page.parent(license)
+    val openLicense: (LicenseKind) -> Unit = {
+        license = it
+        page = SettingsPage.LICENSE
     }
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            LargeTopAppBar(
-                title = { Text(title) },
-                navigationIcon = {
-                    IconButton(onClick = { if (page == SettingsPage.MAIN) onBack() else page = SettingsPage.MAIN }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.settings_back))
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-            )
+    BackHandler(enabled = parent != null) { parent?.let { page = it } }
+    // only the main list outlives its page, so coming back keeps its scroll position
+    val mainListState = rememberLazyListState()
+    val motion = MaterialTheme.motionScheme
+    AnimatedContent(
+        // the fading pages are partly see through, so the themed background sits under them
+        // instead of the white window behind the activity
+        modifier = Modifier.background(MaterialTheme.colorScheme.background),
+        targetState = page,
+        transitionSpec = {
+            // deeper pages enter from the end and shallower ones from the start
+            val direction = if (targetState.depth(license) >= initialState.depth(license)) 1 else -1
+            val enter = slideInHorizontally(motion.defaultSpatialSpec()) { direction * it / 4 } +
+                fadeIn(motion.defaultEffectsSpec())
+            val exit = slideOutHorizontally(motion.defaultSpatialSpec()) { -direction * it / 4 } +
+                fadeOut(motion.fastEffectsSpec())
+            (enter togetherWith exit).using(SizeTransform(clip = false))
         },
-    ) { padding ->
-        LazyColumn(
-            contentPadding = padding,
-            modifier = Modifier
-                .fillMaxSize()
-                .navigationBarsPadding(),
-        ) {
-            when (page) {
-                SettingsPage.MAIN -> mainPage { page = it }
-                SettingsPage.LOOK -> lookPage(settings, viewModel)
-                SettingsPage.HOME -> homePage(settings, viewModel)
-                SettingsPage.DRAWER -> drawerPage(settings, viewModel)
-                SettingsPage.GESTURES -> gesturesPage(settings, viewModel)
-                SettingsPage.SEARCH -> searchPage(settings, viewModel)
+        label = "settings page",
+    ) { shown ->
+        // each page owns its bar state and list state, so a page always opens at the top and expanded
+        val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+        val listState = if (shown == SettingsPage.MAIN) mainListState else rememberLazyListState()
+        val shownParent = shown.parent(license)
+        val licenseParagraphs = if (shown == SettingsPage.LICENSE) rememberLicenseParagraphs(license) else emptyList()
+        Scaffold(
+            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+            // the main page opens on spark's centered branding in the list itself, so it has no bar
+            topBar = {
+                if (shown != SettingsPage.MAIN) LargeFlexibleTopAppBar(
+                    title = { Text(title(shown, license)) },
+                    // the main page leaves with the system back gesture; only sub-pages show a way up
+                    navigationIcon = {
+                        shownParent?.let { up ->
+                            IconButton(onClick = { page = up }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.settings_back))
+                            }
+                        }
+                    },
+                    scrollBehavior = scrollBehavior,
+                )
+            },
+        ) { padding ->
+            LazyColumn(
+                state = listState,
+                contentPadding = padding,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding(),
+            ) {
+                when (shown) {
+                    SettingsPage.MAIN -> mainPage { page = it }
+                    SettingsPage.LOOK -> lookPage(settings, viewModel)
+                    SettingsPage.HOME -> homePage(settings, viewModel)
+                    SettingsPage.DRAWER -> drawerPage(settings, viewModel)
+                    SettingsPage.GESTURES -> gesturesPage(settings, viewModel)
+                    SettingsPage.SEARCH -> searchPage(settings, viewModel)
+                    SettingsPage.ABOUT -> aboutPage(onOpenLicense = openLicense, onOpenLibraries = { page = SettingsPage.LIBRARIES })
+                    SettingsPage.LIBRARIES -> librariesPage(openLicense)
+                    SettingsPage.LICENSE -> licenseTextPage(licenseParagraphs)
+                }
+                item { Spacer(modifier = Modifier.height(24.dp)) }
             }
-            item { Spacer(modifier = Modifier.height(24.dp)) }
         }
     }
 }
 
+/** how many steps from the main page, which decides the slide direction */
+private fun SettingsPage.depth(license: LicenseKind): Int = when (this) {
+    SettingsPage.MAIN -> 0
+    SettingsPage.LIBRARIES -> 2
+    SettingsPage.LICENSE -> if (license == LicenseKind.GPL3) 2 else 3
+    else -> 1
+}
+
+/** each page goes back to the page that opened it; spark's own license opens from about */
+private fun SettingsPage.parent(license: LicenseKind): SettingsPage? = when (this) {
+    SettingsPage.MAIN -> null
+    SettingsPage.LIBRARIES -> SettingsPage.ABOUT
+    SettingsPage.LICENSE -> if (license == LicenseKind.GPL3) SettingsPage.ABOUT else SettingsPage.LIBRARIES
+    else -> SettingsPage.MAIN
+}
+
+@Composable
+private fun title(page: SettingsPage, license: LicenseKind): String = when (page) {
+    SettingsPage.MAIN -> stringResource(R.string.settings_title)
+    SettingsPage.LOOK -> stringResource(R.string.settings_page_look)
+    SettingsPage.HOME -> stringResource(R.string.settings_page_home)
+    SettingsPage.DRAWER -> stringResource(R.string.settings_page_drawer)
+    SettingsPage.GESTURES -> stringResource(R.string.settings_page_gestures)
+    SettingsPage.SEARCH -> stringResource(R.string.settings_page_search)
+    SettingsPage.ABOUT -> stringResource(R.string.settings_page_about)
+    SettingsPage.LIBRARIES -> stringResource(R.string.settings_about_libraries)
+    SettingsPage.LICENSE -> stringResource(license.title)
+}
+
 private fun LazyListScope.mainPage(open: (SettingsPage) -> Unit) {
+    item { BrandHeader(showDetails = false) }
     item {
-        PageEntry(Icons.Outlined.Palette, stringResource(R.string.settings_page_look), stringResource(R.string.settings_page_look_summary)) {
-            open(SettingsPage.LOOK)
-        }
-    }
-    item {
-        PageEntry(Icons.Outlined.GridView, stringResource(R.string.settings_page_home), stringResource(R.string.settings_page_home_summary)) {
-            open(SettingsPage.HOME)
-        }
-    }
-    item {
-        PageEntry(Icons.Outlined.Apps, stringResource(R.string.settings_page_drawer), stringResource(R.string.settings_page_drawer_summary)) {
-            open(SettingsPage.DRAWER)
-        }
-    }
-    item {
-        PageEntry(Icons.Outlined.Gesture, stringResource(R.string.settings_page_gestures), stringResource(R.string.settings_page_gestures_summary)) {
-            open(SettingsPage.GESTURES)
-        }
-    }
-    item {
-        PageEntry(Icons.Outlined.Search, stringResource(R.string.settings_page_search), stringResource(R.string.settings_page_search_summary)) {
-            open(SettingsPage.SEARCH)
+        SettingsCard {
+            PageEntry(Icons.Outlined.Palette, stringResource(R.string.settings_page_look), stringResource(R.string.settings_page_look_summary)) {
+                open(SettingsPage.LOOK)
+            }
+            PageEntry(Icons.Outlined.GridView, stringResource(R.string.settings_page_home), stringResource(R.string.settings_page_home_summary)) {
+                open(SettingsPage.HOME)
+            }
+            PageEntry(Icons.Outlined.Apps, stringResource(R.string.settings_page_drawer), stringResource(R.string.settings_page_drawer_summary)) {
+                open(SettingsPage.DRAWER)
+            }
+            PageEntry(Icons.Outlined.Gesture, stringResource(R.string.settings_page_gestures), stringResource(R.string.settings_page_gestures_summary)) {
+                open(SettingsPage.GESTURES)
+            }
+            PageEntry(Icons.Outlined.Search, stringResource(R.string.settings_page_search), stringResource(R.string.settings_page_search_summary)) {
+                open(SettingsPage.SEARCH)
+            }
+            PageEntry(Icons.Outlined.Info, stringResource(R.string.settings_page_about), stringResource(R.string.settings_page_about_summary)) {
+                open(SettingsPage.ABOUT)
+            }
         }
     }
 }
 
 private fun LazyListScope.lookPage(settings: LauncherSettings, viewModel: SettingsViewModel) {
-    item { SectionHeader(stringResource(R.string.settings_section_colors)) }
-    item { ThemeModeRow(settings.themeMode) { mode -> viewModel.update { it.copy(themeMode = mode) } } }
-    item { ColorSourceRow(settings.colorSource) { source -> viewModel.update { it.copy(colorSource = source) } } }
-    if (settings.colorSource == ColorSource.CUSTOM) {
-        item {
-            SeedColorPicker(
-                selected = settings.seedColor,
-                onSelect = { color -> viewModel.update { it.copy(seedColor = color) } },
-                onPreview = viewModel::previewSeed,
-                onCommit = viewModel::commitSeed,
-            )
+    item { SectionHeader(stringResource(R.string.settings_section_appearance)) }
+    item {
+        SettingsCard {
+            ThemeModeRow(settings.themeMode) { mode -> viewModel.update { it.copy(themeMode = mode) } }
         }
     }
-    item { PaletteStyleRow(settings.paletteStyle) { style -> viewModel.update { it.copy(paletteStyle = style) } } }
-    item { PalettePreview() }
+
+    item { SectionHeader(stringResource(R.string.settings_section_colors)) }
+    item {
+        SettingsCard {
+            // the preview leads the card so every control below visibly changes it
+            PalettePreview()
+            CardDivider()
+            ColorSourceRow(settings.colorSource) { source -> viewModel.update { it.copy(colorSource = source) } }
+            // the accent picker slides in under the source toggle that controls it
+            AnimatedVisibility(visible = settings.colorSource == ColorSource.CUSTOM) {
+                Column {
+                    SeedColorPicker(
+                        selected = settings.seedColor,
+                        onSelect = { color -> viewModel.update { it.copy(seedColor = color) } },
+                        onPreview = viewModel::previewSeed,
+                        onCommit = viewModel::commitSeed,
+                    )
+                }
+            }
+            CardDivider()
+            PaletteStyleRow(settings.paletteStyle) { style -> viewModel.update { it.copy(paletteStyle = style) } }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
 
     item { SectionHeader(stringResource(R.string.settings_section_icons)) }
-    item { IconPreviewRow(viewModel) }
-    item { IconPackRow(settings.iconPack, viewModel) }
-    item { IconShapeRow(settings.iconShape) { shape -> viewModel.update { it.copy(iconShape = shape) } } }
-    if (settings.iconShape == IconShape.ROUNDED) {
-        item {
-            CornerSlider(settings.iconCornerRadiusPercent) { percent ->
-                viewModel.update { it.copy(iconCornerRadiusPercent = percent) }
+    item {
+        SettingsCard {
+            IconPreviewRow(viewModel)
+            CardDivider()
+            IconShapeRow(settings.iconShape) { shape -> viewModel.update { it.copy(iconShape = shape) } }
+            AnimatedVisibility(visible = settings.iconShape == IconShape.ROUNDED) {
+                Column {
+                    CornerSlider(settings.iconCornerRadiusPercent) { percent ->
+                        viewModel.update { it.copy(iconCornerRadiusPercent = percent) }
+                    }
+                }
             }
         }
     }
+    item { Spacer(modifier = Modifier.height(12.dp)) }
+    item { SettingsCard { IconPackRow(settings.iconPack, viewModel) } }
+
+    item { SectionHeader(stringResource(R.string.settings_section_icon_colors)) }
     item {
-        SwitchRow(
-            title = stringResource(R.string.settings_themed_icons),
-            summary = stringResource(R.string.settings_themed_icons_summary),
-            checked = settings.themedIcons,
-        ) { on -> viewModel.update { it.copy(themedIcons = on) } }
-    }
-    item {
-        SwitchRow(
-            title = stringResource(R.string.settings_themed_fallback),
-            summary = stringResource(R.string.settings_themed_fallback_summary),
-            checked = settings.themedIconFallback,
-            enabled = settings.themedIcons,
-        ) { on -> viewModel.update { it.copy(themedIconFallback = on) } }
+        SettingsCard {
+            SwitchRow(
+                title = stringResource(R.string.settings_themed_icons),
+                summary = stringResource(R.string.settings_themed_icons_summary),
+                checked = settings.themedIcons,
+            ) { on -> viewModel.update { it.copy(themedIcons = on) } }
+            // indented because it only applies while themed icons are on
+            SwitchRow(
+                title = stringResource(R.string.settings_themed_fallback),
+                summary = stringResource(R.string.settings_themed_fallback_summary),
+                checked = settings.themedIconFallback,
+                enabled = settings.themedIcons,
+                indent = 16.dp,
+            ) { on -> viewModel.update { it.copy(themedIconFallback = on) } }
+        }
     }
 }
 
+/** groups related controls on a rounded surface, inset from the screen edge */
+@Composable
+internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .padding(vertical = 8.dp),
+        content = content,
+    )
+}
+
+@Composable
+internal fun CardDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+        color = MaterialTheme.colorScheme.outlineVariant,
+    )
+}
+
 private fun LazyListScope.homePage(settings: LauncherSettings, viewModel: SettingsViewModel) {
-    item { HomeModeRow(settings.homeMode) { mode -> viewModel.update { it.copy(homeMode = mode) } } }
-    item { SectionHeader(stringResource(R.string.settings_section_grid)) }
-    item { GridPreview(settings) }
+    item { SectionHeader(stringResource(R.string.settings_section_layout)) }
     item {
+        SettingsCard {
+            HomeModeRow(settings.homeMode) { mode -> viewModel.update { it.copy(homeMode = mode) } }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+
+    item { SectionHeader(stringResource(R.string.settings_section_grid)) }
+    item { HomeGridCard(settings, viewModel) }
+
+    item { SectionHeader(stringResource(R.string.settings_section_labels)) }
+    item {
+        SettingsCard {
+            SwitchRow(
+                title = stringResource(R.string.settings_home_labels),
+                summary = stringResource(R.string.settings_home_labels_summary),
+                checked = settings.showHomeLabels,
+            ) { on -> viewModel.update { it.copy(showHomeLabels = on) } }
+            SegmentedSetting(
+                label = stringResource(R.string.settings_label_lines),
+                options = listOf(1 to stringResource(R.string.settings_label_lines_one), 2 to stringResource(R.string.settings_label_lines_two)),
+                selected = settings.labelLines,
+            ) { lines -> viewModel.update { it.copy(labelLines = lines) } }
+            CardDivider()
+            SwitchRow(
+                title = stringResource(R.string.settings_dots),
+                summary = stringResource(R.string.settings_dots_summary),
+                checked = settings.notificationDots,
+            ) { on -> viewModel.update { it.copy(notificationDots = on) } }
+        }
+    }
+    item { NotificationAccessCard(settings, viewModel) }
+}
+
+/** the grid controls under the preview they change, so a drag or a tap is seen as it happens */
+@Composable
+private fun HomeGridCard(settings: LauncherSettings, viewModel: SettingsViewModel) {
+    var liveScale by remember(settings.iconScale) { mutableFloatStateOf(settings.iconScale) }
+    SettingsCard {
+        GridPreview(settings, liveScale)
         Stepper(stringResource(R.string.settings_columns), settings.homeColumns, GridLimits.HOME_COLUMNS) { value ->
             viewModel.updateGrid { it.copy(homeColumns = value) }
         }
-    }
-    item {
         Stepper(stringResource(R.string.settings_rows), settings.homeRows, GridLimits.HOME_ROWS) { value ->
             viewModel.updateGrid { it.copy(homeRows = value) }
         }
-    }
-    item {
         Stepper(
             stringResource(R.string.settings_dock),
             settings.dockSlots,
             GridLimits.DOCK_SLOTS,
             display = { if (it == 0) stringResource(R.string.settings_dock_hidden) else it.toString() },
         ) { value -> viewModel.updateGrid { it.copy(dockSlots = value) } }
-    }
-    item {
+        IconScaleSlider(settings.iconScale, onLiveChange = { liveScale = it }) { scale ->
+            viewModel.update { it.copy(iconScale = scale) }
+        }
+        CardDivider()
         SwitchRow(
             title = stringResource(R.string.settings_subgrid),
             summary = stringResource(R.string.settings_subgrid_summary),
             checked = settings.subgridPositioning,
         ) { on -> viewModel.update { it.copy(subgridPositioning = on) } }
     }
-    item { SectionHeader(stringResource(R.string.settings_section_icons)) }
-    item { IconScaleSlider(settings.iconScale) { scale -> viewModel.update { it.copy(iconScale = scale) } } }
-    item {
-        SwitchRow(
-            title = stringResource(R.string.settings_home_labels),
-            summary = stringResource(R.string.settings_home_labels_summary),
-            checked = settings.showHomeLabels,
-        ) { on -> viewModel.update { it.copy(showHomeLabels = on) } }
-    }
-    item {
-        SwitchRow(
-            title = stringResource(R.string.settings_dots),
-            summary = stringResource(R.string.settings_dots_summary),
-            checked = settings.notificationDots,
-        ) { on -> viewModel.update { it.copy(notificationDots = on) } }
-    }
-    item { NotificationAccessCard(settings, viewModel) }
-    item {
-        SegmentedSetting(
-            label = stringResource(R.string.settings_label_lines),
-            options = listOf(1 to stringResource(R.string.settings_label_lines_one), 2 to stringResource(R.string.settings_label_lines_two)),
-            selected = settings.labelLines,
-        ) { lines -> viewModel.update { it.copy(labelLines = lines) } }
-    }
 }
 
 private fun LazyListScope.drawerPage(settings: LauncherSettings, viewModel: SettingsViewModel) {
-    item {
+    item { SectionHeader(stringResource(R.string.settings_section_grid)) }
+    item { DrawerGridCard(settings, viewModel) }
+}
+
+/** the same icon size setting as on the home page, shown here beside the drawer preview it changes */
+@Composable
+private fun DrawerGridCard(settings: LauncherSettings, viewModel: SettingsViewModel) {
+    var liveScale by remember(settings.iconScale) { mutableFloatStateOf(settings.iconScale) }
+    SettingsCard {
+        DrawerPreview(settings.drawerColumns, liveScale, settings.showDrawerLabels)
         Stepper(stringResource(R.string.settings_columns), settings.drawerColumns, GridLimits.DRAWER_COLUMNS) { value ->
             viewModel.update { it.copy(drawerColumns = value) }
         }
-    }
-    item {
+        IconScaleSlider(settings.iconScale, onLiveChange = { liveScale = it }) { scale ->
+            viewModel.update { it.copy(iconScale = scale) }
+        }
+        CardDivider()
         SwitchRow(
             title = stringResource(R.string.settings_drawer_labels),
             summary = stringResource(R.string.settings_drawer_labels_summary),
@@ -323,43 +467,6 @@ private fun HomeModeRow(selected: HomeMode, onSelect: (HomeMode) -> Unit) {
     )
 }
 
-/** a phone shaped sketch of the grid and dock, at the screen's own proportions */
-@Composable
-private fun GridPreview(settings: LauncherSettings) {
-    val config = LocalConfiguration.current
-    val aspect = config.screenWidthDp.toFloat() / config.screenHeightDp.coerceAtLeast(1)
-    val dot = MaterialTheme.colorScheme.primary
-    val dockDot = MaterialTheme.colorScheme.tertiary
-    val frame = MaterialTheme.colorScheme.surfaceContainerHighest
-    val description = stringResource(R.string.settings_grid_preview, settings.homeColumns, settings.homeRows, settings.dockSlots)
-    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-        Canvas(
-            modifier = Modifier
-                .height(220.dp)
-                .aspectRatio(aspect)
-                .semantics { contentDescription = description },
-        ) {
-            drawRoundRect(frame, cornerRadius = CornerRadius(24.dp.toPx()))
-            val pad = 12.dp.toPx()
-            val dockHeight = if (settings.dockSlots > 0) size.height * 0.12f else 0f
-            val gridHeight = size.height - 2 * pad - dockHeight - pad
-            val cellW = (size.width - 2 * pad) / settings.homeColumns
-            val cellH = gridHeight / settings.homeRows
-            val radius = minOf(cellW, cellH) * 0.28f
-            for (row in 0 until settings.homeRows) {
-                for (col in 0 until settings.homeColumns) {
-                    drawCircle(dot, radius, Offset(pad + cellW * (col + 0.5f), pad + cellH * (row + 0.5f)))
-                }
-            }
-            if (settings.dockSlots > 0) {
-                val slotW = (size.width - 2 * pad) / settings.dockSlots
-                val y = size.height - pad - dockHeight / 2f
-                for (slot in 0 until settings.dockSlots) drawCircle(dockDot, radius, Offset(pad + slotW * (slot + 0.5f), y))
-            }
-        }
-    }
-}
-
 @Composable
 private fun Stepper(
     label: String,
@@ -386,12 +493,16 @@ private fun Stepper(
 }
 
 @Composable
-private fun IconScaleSlider(scale: Float, onChange: (Float) -> Unit) {
+private fun IconScaleSlider(scale: Float, onLiveChange: (Float) -> Unit, onChange: (Float) -> Unit) {
     var value by remember(scale) { mutableFloatStateOf(scale * 100f) }
     SettingLabel(stringResource(R.string.settings_icon_size, value.roundToInt()))
     Slider(
         value = value,
-        onValueChange = { value = it },
+        onValueChange = {
+            value = it
+            // only the preview follows the drag; the setting itself is written on release
+            onLiveChange(it.roundToInt() / 100f)
+        },
         // icons re-render once per release instead of once per frame of the drag
         onValueChangeFinished = { onChange(value.roundToInt() / 100f) },
         valueRange = GridLimits.ICON_SCALE_MIN * 100f..GridLimits.ICON_SCALE_MAX * 100f,
@@ -514,6 +625,7 @@ private fun hueOf(argb: Int): Float {
     return hsv[0]
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PaletteStyleRow(selected: PaletteStyleOption, onSelect: (PaletteStyleOption) -> Unit) {
     SettingLabel(stringResource(R.string.settings_palette_style))
@@ -524,11 +636,13 @@ private fun PaletteStyleRow(selected: PaletteStyleOption, onSelect: (PaletteStyl
         PaletteStyleOption.FIDELITY to stringResource(R.string.settings_style_fidelity),
         PaletteStyleOption.MONOCHROME to stringResource(R.string.settings_style_monochrome),
     )
-    Row(
+    // chips wrap instead of scrolling so every style is visible without discovering a swipe
+    FlowRow(
         modifier = Modifier
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp),
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         PaletteStyleOption.entries.forEach { style ->
             FilterChip(selected = style == selected, onClick = { onSelect(style) }, label = { Text(labels.getValue(style)) })
@@ -541,8 +655,10 @@ private fun PaletteStyleRow(selected: PaletteStyleOption, onSelect: (PaletteStyl
 private fun PalettePreview() {
     val scheme = MaterialTheme.colorScheme
     Row(
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
         listOf(scheme.primary, scheme.secondary, scheme.tertiary, scheme.primaryContainer, scheme.surfaceContainerHighest)
             .forEach { color -> Box(modifier = Modifier.size(32.dp).background(color, CircleShape)) }
@@ -673,12 +789,19 @@ private fun CornerSlider(percent: Int, onChange: (Int) -> Unit) {
 }
 
 @Composable
-internal fun SwitchRow(title: String, summary: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(
+    title: String,
+    summary: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    indent: Dp = 0.dp,
+    onChange: (Boolean) -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = enabled) { onChange(!checked) }
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .padding(start = 24.dp + indent, end = 24.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {

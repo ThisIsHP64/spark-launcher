@@ -72,7 +72,7 @@ internal sealed interface DropZone {
 }
 
 /**
- * where the home grid, dock and drop bar sit on screen, refreshed on every layout. drag math reads
+ * where the home grid, dock, and drop bar sit on screen, refreshed on every layout. drag math reads
  * it directly instead of through compose state because it changes only when the layout does.
  */
 @Stable

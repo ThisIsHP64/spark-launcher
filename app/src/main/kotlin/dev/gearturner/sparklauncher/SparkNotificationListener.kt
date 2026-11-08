@@ -14,7 +14,7 @@ import javax.inject.Inject
 
 /**
  * tells the launcher which apps have notifications so their icons can show a dot. it reads only
- * each notification's flags, channel and owner; titles, text and extras are never looked at or kept.
+ * each notification's flags, channel, and owner; titles, text, and extras are never looked at or kept.
  */
 @AndroidEntryPoint
 class SparkNotificationListener : NotificationListenerService() {

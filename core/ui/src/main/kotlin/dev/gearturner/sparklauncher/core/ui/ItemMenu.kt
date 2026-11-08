@@ -75,7 +75,7 @@ internal fun groupMenu(shortcuts: List<AppShortcut>, actions: List<MenuAction>):
     ).filter { it.isNotEmpty() }
 
 /**
- * the long press menu shared by home, drawer, folders, widgets and empty space, in the grouped
+ * the long press menu shared by home, drawer, folders, widgets, and empty space, in the grouped
  * material 3 expressive style. shortcuts load when the menu opens because apps change them often
  * and the query is cheap.
  */
