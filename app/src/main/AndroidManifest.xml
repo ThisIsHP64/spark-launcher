@@ -8,6 +8,12 @@
         android:name="android.permission.ACCESS_NETWORK_STATE"
         tools:node="remove" />
 
+    <!-- lets the swipe down gesture open the shade; a normal permission granted at install, no prompt -->
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+
+    <!-- asked for only when the user turns on contact results in search settings -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
     <!-- opens the system uninstall confirmation; the user still approves every removal there -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
@@ -28,6 +34,8 @@
             <data android:scheme="https" />
         </intent>
         <!-- icon packs register these so launchers can list them, even packs with no launcher icon -->
+        <!-- contact search reads names through the system contacts provider when turned on -->
+        <provider android:authorities="com.android.contacts" />
         <intent>
             <action android:name="org.adw.launcher.THEMES" />
         </intent>
@@ -89,5 +97,19 @@
                 <action android:name="android.content.pm.action.CONFIRM_PIN_APPWIDGET" />
             </intent-filter>
         </activity>
+
+        <!-- off until the user enables it in accessibility settings; the bind permission is held only by the system -->
+        <service
+            android:name=".SparkAccessibilityService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service" />
+        </service>
     </application>
 </manifest>

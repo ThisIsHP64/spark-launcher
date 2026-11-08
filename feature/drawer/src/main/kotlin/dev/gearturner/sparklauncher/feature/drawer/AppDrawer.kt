@@ -64,7 +64,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.gearturner.sparklauncher.core.apps.LaunchRequest
 import dev.gearturner.sparklauncher.core.data.AddResult
 import androidx.compose.material.icons.outlined.AddHome
 import androidx.compose.material.icons.outlined.Delete
@@ -140,6 +139,8 @@ fun AppDrawer(
     LaunchedEffect(drawer, dragController) {
         snapshotFlow { drawer.value == 0f && dragController?.session == null }.collect { closed ->
             if (closed) {
+                // a search request that never reached a fully open drawer must not linger to the next open
+                drawer.consumeSearchRequest()
                 keyboard?.hide()
                 focusManager.clearFocus()
                 searchState.clearText()
@@ -166,9 +167,15 @@ fun AppDrawer(
     // in home only mode every app is already on home, so swiping up is just a search
     val searchOnly = state.settings.homeMode == HomeMode.HOME_ONLY
     val searchFocus = remember { FocusRequester() }
+    // the keyboard comes up once the sheet has fully arrived, in search only mode or when a
+    // gesture asked for search rather than the app list
     LaunchedEffect(drawer, searchOnly) {
-        if (!searchOnly) return@LaunchedEffect
-        snapshotFlow { drawer.value == 1f }.collect { open -> if (open) searchFocus.requestFocus() }
+        snapshotFlow { drawer.value == 1f && (searchOnly || drawer.searchRequested) }.collect { focus ->
+            if (focus) {
+                drawer.consumeSearchRequest()
+                searchFocus.requestFocus()
+            }
+        }
     }
 
     if (!drawer.isVisible && !draggingFromDrawer) return
@@ -197,7 +204,7 @@ fun AppDrawer(
         ) {
             SearchField(
                 state = searchState,
-                onSubmit = { state.entries.firstOrNull()?.let { viewModel.launch(it.app, anchorlessRequest()) } },
+                onSubmit = { state.topHit?.let(viewModel::open) },
                 modifier = Modifier
                     .draggable(
                         state = headerDrag,
@@ -217,7 +224,7 @@ fun AppDrawer(
                         .padding(32.dp),
                 )
             }
-            if (state.entries.isEmpty() && state.query.isNotBlank()) {
+            if (state.entries.isEmpty() && state.results.isEmpty && state.query.isNotBlank()) {
                 Text(
                     text = stringResource(R.string.drawer_no_results, state.query),
                     style = MaterialTheme.typography.bodyLarge,
@@ -237,17 +244,20 @@ fun AppDrawer(
                 ),
                 modifier = Modifier.fillMaxSize(),
             ) {
+                val topHit = state.topHit
+                state.results.calculation?.let { calculatorRow(state.query.trim(), it) }
                 val shown = if (searchOnly && state.query.isBlank()) emptyList() else state.entries
                 itemsIndexed(shown, key = { _, entry -> entry.app.key.toString() }) { index, entry ->
                     DrawerItem(
                         entry = entry,
-                        topHit = index == 0 && state.query.isNotBlank(),
+                        topHit = index == 0 && topHit is TopHit.App,
                         iconScale = state.settings.iconScale,
                         showLabels = state.settings.showDrawerLabels,
                         viewModel = viewModel,
                         drawer = drawer,
                     )
                 }
+                searchSections(state.results, topHit, viewModel)
             }
         }
     }
@@ -271,9 +281,6 @@ private fun Modifier.statusBarClearance(drawer: DrawerController, statusBars: Wi
         )
         layout(placeable.width, placeable.height + clearance) { placeable.place(0, clearance) }
     }
-
-/** enter from the keyboard has no icon to grow from, so the system default animation is used */
-private fun anchorlessRequest() = LaunchRequest()
 
 @Composable
 private fun SearchField(

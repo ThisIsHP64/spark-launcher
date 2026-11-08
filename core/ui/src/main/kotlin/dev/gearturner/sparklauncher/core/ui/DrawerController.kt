@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -32,6 +33,10 @@ class DrawerController internal constructor(private val scope: CoroutineScope) {
             field = value.coerceAtLeast(1f)
         }
 
+    /** set when the drawer is opened to search, so the field takes focus and raises the keyboard */
+    var searchRequested: Boolean by mutableStateOf(false)
+        private set
+
     val value: Float get() = progress
     val isOpen: Boolean get() = progress > 0.5f
     val isVisible: Boolean get() = progress > 0f
@@ -53,6 +58,15 @@ class DrawerController internal constructor(private val scope: CoroutineScope) {
     }
 
     fun open() = animateTo(1f, 0f)
+
+    fun openSearch() {
+        searchRequested = true
+        open()
+    }
+
+    fun consumeSearchRequest() {
+        searchRequested = false
+    }
 
     fun close() = animateTo(0f, 0f)
 

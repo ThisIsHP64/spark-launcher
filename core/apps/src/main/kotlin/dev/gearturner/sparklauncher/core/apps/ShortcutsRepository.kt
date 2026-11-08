@@ -118,6 +118,21 @@ class ShortcutsRepository @Inject constructor(
         }
     }
 
+    /**
+     * every enabled shortcut of every app in every profile, for search. it is read on demand rather
+     * than kept in memory because only an open search needs it.
+     */
+    suspend fun allLaunchable(): List<AppShortcut> = withContext(Dispatchers.IO) {
+        if (!hasHostPermission) return@withContext emptyList()
+        val query = ShortcutQuery().setQueryFlags(
+            ShortcutQuery.FLAG_MATCH_DYNAMIC or ShortcutQuery.FLAG_MATCH_MANIFEST or ShortcutQuery.FLAG_MATCH_PINNED,
+        )
+        launcherApps.profiles.flatMap { user ->
+            val serial = userManager.getSerialNumberForUser(user)
+            queryOrEmpty(query, user).filter { it.isEnabled }.map { it.toModel(serial) }
+        }.distinctBy { it.key }
+    }
+
     private fun findShortcut(key: ShortcutKey): ShortcutInfo? {
         val user = apps.userFor(key.userSerial) ?: return null
         val query = ShortcutQuery()

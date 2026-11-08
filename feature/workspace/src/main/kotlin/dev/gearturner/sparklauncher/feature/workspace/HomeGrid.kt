@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,8 +68,10 @@ internal fun PageGrid(
     onOpenFolder: (Long) -> Unit,
     onResizeWidget: (WidgetTile) -> Unit,
     onEmptyLongPress: (Offset) -> Unit,
+    onEmptyDoubleTap: (() -> Unit)?,
 ) {
     val haptics = LocalHapticFeedback.current
+    val doubleTap by rememberUpdatedState(onEmptyDoubleTap)
     var gridCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     BoxWithConstraints(
         modifier = Modifier
@@ -76,11 +79,15 @@ internal fun PageGrid(
             .padding(horizontal = GridPadding)
             .onGloballyPositioned { gridCoordinates = it }
             // tiles sit above this layer, so only presses on empty space reach it
-            .pointerInput(Unit) {
-                detectTapGestures(onLongPress = { local ->
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    gridCoordinates?.takeIf { it.isAttached }?.let { onEmptyLongPress(it.localToRoot(local)) }
-                })
+            // keyed on whether double tap is used, because a double tap listener delays every single tap
+            .pointerInput(onEmptyDoubleTap != null) {
+                detectTapGestures(
+                    onLongPress = { local ->
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        gridCoordinates?.takeIf { it.isAttached }?.let { onEmptyLongPress(it.localToRoot(local)) }
+                    },
+                    onDoubleTap = if (onEmptyDoubleTap != null) { _ -> doubleTap?.invoke() } else null,
+                )
             },
     ) {
         val cellWidth = maxWidth / columns

@@ -67,6 +67,11 @@ data class LauncherSettings(
     val paletteStyle: PaletteStyleOption = PaletteStyleOption.TONAL_SPOT,
     /** set once the starter layout is written so clearing the home screen does not bring it back */
     val defaultLayoutApplied: Boolean = false,
+    val gestures: GestureSettings = GestureSettings(),
+    /** off until the user grants contacts access, so search never reads contacts unasked */
+    val searchContacts: Boolean = false,
+    val searchShortcuts: Boolean = true,
+    val searchSettings: Boolean = true,
 ) {
     /** clamps values a hand-edited or imported file could push out of the supported range */
     fun sanitized(): LauncherSettings = copy(
@@ -80,6 +85,7 @@ data class LauncherSettings(
         // an imported file could carry a transparent seed, which would generate a broken palette
         seedColor = seedColor or OPAQUE,
         iconPack = iconPack?.takeIf { it.isNotBlank() && it.length <= MAX_PACKAGE_LENGTH },
+        gestures = gestures.sanitized(),
     )
 
     /** the corner percent the current shape implies, for plates and placeholders drawn behind icons */

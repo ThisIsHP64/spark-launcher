@@ -9,6 +9,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Gesture
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.geometry.CornerRadius
@@ -90,7 +92,7 @@ private val SwatchColors = listOf(
     0xFFEF6C00, 0xFFD84315, 0xFFC2185B, 0xFF8E24AA, 0xFF5E35B1, 0xFF6D4C41,
 ).map { it.toInt() }
 
-private enum class SettingsPage { MAIN, LOOK, HOME, DRAWER }
+private enum class SettingsPage { MAIN, LOOK, HOME, DRAWER, GESTURES, SEARCH }
 
 /** a short list of sections, each its own page, so no single page grows into a wall of options */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -103,6 +105,8 @@ internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewM
         SettingsPage.LOOK -> stringResource(R.string.settings_page_look)
         SettingsPage.HOME -> stringResource(R.string.settings_page_home)
         SettingsPage.DRAWER -> stringResource(R.string.settings_page_drawer)
+        SettingsPage.GESTURES -> stringResource(R.string.settings_page_gestures)
+        SettingsPage.SEARCH -> stringResource(R.string.settings_page_search)
     }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
@@ -130,6 +134,8 @@ internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewM
                 SettingsPage.LOOK -> lookPage(settings, viewModel)
                 SettingsPage.HOME -> homePage(settings, viewModel)
                 SettingsPage.DRAWER -> drawerPage(settings, viewModel)
+                SettingsPage.GESTURES -> gesturesPage(settings, viewModel)
+                SettingsPage.SEARCH -> searchPage(settings, viewModel)
             }
             item { Spacer(modifier = Modifier.height(24.dp)) }
         }
@@ -150,6 +156,16 @@ private fun LazyListScope.mainPage(open: (SettingsPage) -> Unit) {
     item {
         PageEntry(Icons.Outlined.Apps, stringResource(R.string.settings_page_drawer), stringResource(R.string.settings_page_drawer_summary)) {
             open(SettingsPage.DRAWER)
+        }
+    }
+    item {
+        PageEntry(Icons.Outlined.Gesture, stringResource(R.string.settings_page_gestures), stringResource(R.string.settings_page_gestures_summary)) {
+            open(SettingsPage.GESTURES)
+        }
+    }
+    item {
+        PageEntry(Icons.Outlined.Search, stringResource(R.string.settings_page_search), stringResource(R.string.settings_page_search_summary)) {
+            open(SettingsPage.SEARCH)
         }
     }
 }
@@ -364,7 +380,7 @@ private fun IconScaleSlider(scale: Float, onChange: (Float) -> Unit) {
 }
 
 @Composable
-private fun SectionHeader(title: String) {
+internal fun SectionHeader(title: String) {
     Text(
         title,
         style = MaterialTheme.typography.titleSmall,
@@ -643,7 +659,7 @@ private fun CornerSlider(percent: Int, onChange: (Int) -> Unit) {
 }
 
 @Composable
-private fun SwitchRow(title: String, summary: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(title: String, summary: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

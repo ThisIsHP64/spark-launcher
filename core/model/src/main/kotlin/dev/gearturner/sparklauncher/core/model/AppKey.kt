@@ -1,9 +1,12 @@
 package dev.gearturner.sparklauncher.core.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * identifies one launchable activity for one user profile.
  * the profile is stored as a serial number because user handles are not stable across reboots.
  */
+@Serializable
 data class AppKey(
     val packageName: String,
     val className: String,

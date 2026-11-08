@@ -8,4 +8,9 @@
     <string name="add_shortcut_already">Already on the home screen</string>
     <string name="add_shortcut_no_space">No room on the home screen</string>
     <string name="add_shortcut_failed">Could not add this shortcut</string>
+    <string name="accessibility_service_summary">Lets Spark gestures lock the screen and open recents</string>
+    <string name="accessibility_service_description">Spark uses this only to lock the screen, show recent apps, and open the notification shade when you use a gesture you set up. It does not read the screen, see what you type, or collect any data. Spark has no internet access.</string>
+    <string name="gesture_needs_service">Turn on Spark Launcher in Accessibility to use this gesture</string>
+    <string name="gesture_service_starting">Spark\'s accessibility service is starting, try again in a moment</string>
+    <string name="gesture_app_missing">The app for this gesture could not be opened</string>
 </resources>

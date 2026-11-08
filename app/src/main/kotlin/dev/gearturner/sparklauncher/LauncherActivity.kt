@@ -21,6 +21,8 @@ import dev.gearturner.sparklauncher.core.ui.HomeIconRegistry
 import dev.gearturner.sparklauncher.core.ui.LocalHomeIconRegistry
 import dev.gearturner.sparklauncher.core.ui.LocalIconRepository
 import dev.gearturner.sparklauncher.core.ui.LocalLabelLines
+import dev.gearturner.sparklauncher.core.ui.LocalGestureActions
+import dev.gearturner.sparklauncher.core.apps.AppsRepository
 import dev.gearturner.sparklauncher.core.ui.ProvideIconStyle
 import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetBinder
 import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetViews
@@ -48,7 +50,11 @@ class LauncherActivity : ComponentActivity() {
     @Inject
     lateinit var settingsRepository: SettingsRepository
 
+    @Inject
+    lateinit var appsRepository: AppsRepository
+
     private lateinit var widgetBinder: WidgetBindFlow
+    private lateinit var systemActions: SystemActions
     private lateinit var widgetViews: WidgetViews
 
     // owned by the activity so the swipe home handshake can be answered before compose recomposes
@@ -80,6 +86,7 @@ class LauncherActivity : ComponentActivity() {
         answerGestureContract(intent)
         widgetBinder = WidgetBindFlow(this, widgetHost)
         widgetViews = WidgetViews(this, widgetHost)
+        systemActions = SystemActions(this, appsRepository, ::openSettings)
         lifecycleScope.launch { widgetHost.releaseOrphans() }
         setContent {
             // waiting for stored settings avoids drawing every icon twice, once in the wrong style
@@ -92,6 +99,7 @@ class LauncherActivity : ComponentActivity() {
                     LocalWidgetBinder provides widgetBinder,
                     LocalWidgetViews provides widgetViews,
                     LocalLabelLines provides loaded.labelLines,
+                    LocalGestureActions provides systemActions,
                 ) {
                     ProvideIconStyle(loaded) {
                         LauncherRoot(homePresses = homePressEvents, onOpenSettings = ::openSettings)

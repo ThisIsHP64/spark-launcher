@@ -1,6 +1,13 @@
 package dev.gearturner.sparklauncher.feature.settings
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.gearturner.sparklauncher.core.apps.SparkAccessibility
+import dev.gearturner.sparklauncher.core.model.AppInfo
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gearturner.sparklauncher.core.apps.AppsRepository
@@ -26,7 +33,31 @@ class SettingsViewModel @Inject constructor(
     private val workspace: WorkspaceRepository,
     apps: AppsRepository,
     private val iconPacks: IconPackRepository,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
+
+    private val _serviceEnabled = MutableStateFlow(false)
+
+    /** whether spark's accessibility service is on, rechecked whenever settings comes back to the front */
+    val serviceEnabled: StateFlow<Boolean> = _serviceEnabled
+
+    private val _contactsGranted = MutableStateFlow(false)
+    val contactsGranted: StateFlow<Boolean> = _contactsGranted
+
+    /** both can change in system settings while spark is in the background */
+    fun refreshSystemState() {
+        _serviceEnabled.value = SparkAccessibility.isEnabled(context)
+        _contactsGranted.value =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /** every launchable app by name, for choosing what a gesture opens */
+    val allApps: StateFlow<List<AppInfo>> = apps.apps.filterNotNull()
+        .map { list ->
+            val collator = Collator.getInstance()
+            list.sortedWith { a, b -> collator.compare(a.label, b.label) }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _packs = MutableStateFlow<List<IconPackInfo>?>(null)
 

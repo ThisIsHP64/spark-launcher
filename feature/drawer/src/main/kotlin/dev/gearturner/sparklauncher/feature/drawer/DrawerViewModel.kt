@@ -20,6 +20,11 @@ import dev.gearturner.sparklauncher.core.icons.IconPackInfo
 import dev.gearturner.sparklauncher.core.icons.IconPackRepository
 import dev.gearturner.sparklauncher.core.model.CustomIcon
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
+import dev.gearturner.sparklauncher.feature.search.ContactHit
+import dev.gearturner.sparklauncher.feature.search.SearchRepository
+import dev.gearturner.sparklauncher.feature.search.SearchResults
+import dev.gearturner.sparklauncher.feature.search.SettingHit
+import dev.gearturner.sparklauncher.feature.search.ShortcutHit
 import dev.gearturner.sparklauncher.feature.widgets.WidgetRepository
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -48,7 +53,26 @@ data class DrawerUiState(
     val query: String = "",
     val entries: List<DrawerEntry> = emptyList(),
     val settings: LauncherSettings = LauncherSettings(),
-)
+    val results: SearchResults = SearchResults(),
+) {
+    /** what the keyboard's go key opens, and so what the drawer highlights */
+    val topHit: TopHit? get() = if (query.isBlank()) null else topHitOf(entries, results)
+}
+
+/** the single result enter opens: the best app, or when no app matches, the first other result */
+sealed interface TopHit {
+    data class App(val entry: DrawerEntry) : TopHit
+    data class Shortcut(val hit: ShortcutHit) : TopHit
+    data class Contact(val hit: ContactHit) : TopHit
+    data class Setting(val hit: SettingHit) : TopHit
+}
+
+/** follows the order the sections are drawn in, so the highlighted row is always the first one shown */
+internal fun topHitOf(entries: List<DrawerEntry>, results: SearchResults): TopHit? =
+    entries.firstOrNull()?.let(TopHit::App)
+        ?: results.shortcuts.firstOrNull()?.let(TopHit::Shortcut)
+        ?: results.contacts.firstOrNull()?.let(TopHit::Contact)
+        ?: results.settings.firstOrNull()?.let(TopHit::Setting)
 
 sealed interface DrawerEvent {
     data class LaunchFailed(val label: String) : DrawerEvent
@@ -65,6 +89,7 @@ class DrawerViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     widgets: WidgetRepository,
     private val iconPacks: IconPackRepository,
+    private val search: SearchRepository,
 ) : ViewModel() {
 
     private val query = MutableStateFlow("")
@@ -82,8 +107,11 @@ class DrawerViewModel @Inject constructor(
         sortApps(labeled).map { app -> app.toEntry(appOverrides[app.key]) }
     }.flowOn(Dispatchers.Default)
 
-    val state: StateFlow<DrawerUiState> = combine(sortedEntries, query, settingsRepository.settings) { sorted, q, s ->
-        DrawerUiState(query = q, entries = visibleEntries(sorted, q), settings = s)
+    private val results = search.results(query)
+
+    val state: StateFlow<DrawerUiState> = combine(sortedEntries, query, settingsRepository.settings, results) { sorted, q, s, r ->
+        // results trail the query by a short debounce; stale ones are dropped rather than shown for the wrong text
+        DrawerUiState(query = q, entries = visibleEntries(sorted, q), settings = s, results = if (r.query == q) r else SearchResults())
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DrawerUiState())
 
@@ -96,6 +124,27 @@ class DrawerViewModel @Inject constructor(
         if (apps.launch(app.key, request) is LaunchResult.Failed) {
             events.trySend(DrawerEvent.LaunchFailed(app.label))
         }
+    }
+
+    fun open(hit: TopHit) {
+        when (hit) {
+            is TopHit.App -> launch(hit.entry.app, LaunchRequest())
+            is TopHit.Shortcut -> openShortcut(hit.hit, LaunchRequest())
+            is TopHit.Contact -> openContact(hit.hit)
+            is TopHit.Setting -> openSetting(hit.hit)
+        }
+    }
+
+    fun openShortcut(hit: ShortcutHit, request: LaunchRequest) {
+        if (!search.openShortcut(hit, request)) events.trySend(DrawerEvent.LaunchFailed(hit.shortcut.shortLabel))
+    }
+
+    fun openContact(hit: ContactHit) {
+        if (!search.openContact(hit)) events.trySend(DrawerEvent.LaunchFailed(hit.name))
+    }
+
+    fun openSetting(hit: SettingHit) {
+        if (!search.openSetting(hit)) events.trySend(DrawerEvent.LaunchFailed(hit.title))
     }
 
     fun launchShortcut(shortcut: AppShortcut, request: LaunchRequest) {

@@ -1,5 +1,10 @@
 package dev.gearturner.sparklauncher.feature.workspace
 
+import dev.gearturner.sparklauncher.core.model.Gesture
+import dev.gearturner.sparklauncher.core.model.GestureAction
+import dev.gearturner.sparklauncher.core.model.effectiveAction
+import dev.gearturner.sparklauncher.core.ui.LocalGestureActions
+import androidx.compose.runtime.rememberUpdatedState
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.widget.Toast
@@ -20,9 +25,6 @@ import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetBinder
 import dev.gearturner.sparklauncher.feature.widgets.WidgetBinder
 import kotlin.math.roundToInt
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,7 +104,19 @@ fun HomeScreen(
     LaunchedEffect(pagerState, iconRegistry) {
         snapshotFlow { pagerState.currentPage }.collect { page -> iconRegistry?.currentPage = page }
     }
-    // pressing home while already home closes the drawer or a folder first, then returns to page one
+    val gestureActions = LocalGestureActions.current
+    val runGesture: (Gesture) -> Unit = { gesture ->
+        val binding = state.settings.gestures.bindingFor(gesture)
+        when (binding.effectiveAction(state.settings.homeMode)) {
+            GestureAction.NONE -> Unit
+            GestureAction.OPEN_DRAWER -> drawer.open()
+            GestureAction.OPEN_SEARCH -> drawer.openSearch()
+            else -> gestureActions?.perform(binding)
+        }
+    }
+    val currentRunGesture by rememberUpdatedState(runGesture)
+    // pressing home while already home closes the drawer or a folder first, returns to page one,
+    // and only then runs whatever the home press gesture is set to
     LaunchedEffect(homePresses) {
         homePresses.collect {
             when {
@@ -110,7 +124,8 @@ fun HomeScreen(
                 picker?.isOpen == true -> picker.close()
                 resizingId != null -> resizingId = null
                 openFolderId != null -> openFolderId = null
-                else -> pagerState.animateScrollToPage(0)
+                pagerState.currentPage != 0 -> pagerState.animateScrollToPage(0)
+                else -> currentRunGesture(Gesture.HOME_PRESS)
             }
         }
     }
@@ -143,7 +158,12 @@ fun HomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .swipeUpToOpen(drawer, enabled = session == null)
+                .homeSwipes(
+                    drawer = drawer,
+                    enabled = session == null,
+                    swipeUpDragsDrawer = state.settings.gestures.swipeUp.action == GestureAction.OPEN_DRAWER,
+                    onGesture = runGesture,
+                )
                 .statusBarsPadding()
                 .navigationBarsPadding(),
         ) {
@@ -182,6 +202,11 @@ fun HomeScreen(
                         onOpenFolder = { openFolderId = it },
                         onResizeWidget = { resizingId = it.itemId },
                         onEmptyLongPress = { emptyMenuAt = it },
+                        onEmptyDoubleTap = if (state.settings.gestures.doubleTap.action == GestureAction.NONE) {
+                            null
+                        } else {
+                            { runGesture(Gesture.DOUBLE_TAP) }
+                        },
                     )
                 }
                 PageIndicator(pagerState)
@@ -355,18 +380,6 @@ private fun HomeEvents(viewModel: HomeViewModel) {
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
     }
-}
-
-/** tracks vertical drags anywhere on home and hands the travel to the drawer */
-@Composable
-private fun Modifier.swipeUpToOpen(drawer: DrawerController, enabled: Boolean): Modifier {
-    val dragState = rememberDraggableState { delta -> drawer.dragBy(-delta) }
-    return draggable(
-        state = dragState,
-        orientation = Orientation.Vertical,
-        enabled = enabled,
-        onDragStopped = { velocity -> drawer.settle(-velocity) },
-    )
 }
 
 @Composable
