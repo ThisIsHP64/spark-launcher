@@ -4,7 +4,7 @@
 
 <h1 align="center">Spark Launcher</h1>
 
-<p align="center"><strong>A fast, private home screen. Free and open source.</strong></p>
+<p align="center"><strong>A free, fast, privacy-oriented launcher for Android 12+.</strong></p>
 
 Spark Launcher is my take on the perfect Android launcher: fast and clean in the spirit of the Pixel launcher, with the customization users want, and no internet access, ads, or AI features at all. It is free and open source for life under the GPLv3 or later.
 
