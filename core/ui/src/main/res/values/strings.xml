@@ -15,4 +15,5 @@
     <string name="ui_close">Close</string>
     <string name="ui_choice_search">Search</string>
     <string name="ui_has_notifications">Has notifications</string>
+    <string name="ui_menu">Menu</string>
 </resources>

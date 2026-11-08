@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.animation.core.tween
@@ -211,13 +212,20 @@ internal fun DragPayload.canUninstall(): Boolean = when (this) {
 @Composable
 internal fun DropBar(
     session: DragSession,
+    visible: Boolean,
     hovered: DropZone,
     geometry: HomeGeometry,
     backdrop: GraphicsLayer,
+    onGone: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val appear = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { appear.animateTo(1f, tween(DROP_BAR_FADE_MS)) }
+    val latestOnGone by rememberUpdatedState(onGone)
+    // fades out as well as in; the caller keeps the bar composed until this reports it has finished
+    LaunchedEffect(visible) {
+        appear.animateTo(if (visible) 1f else 0f, tween(DROP_BAR_FADE_MS))
+        if (!visible) latestOnGone()
+    }
     val blurred = rememberGraphicsLayer()
     val blurPx = with(LocalDensity.current) { DROP_BAR_BLUR.toPx() }
     Box(

@@ -11,6 +11,7 @@ import dev.gearturner.sparklauncher.core.data.WorkspaceRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -25,6 +26,9 @@ class WidgetHostManager @Inject constructor(
 ) {
     val host = AppWidgetHost(context, HOST_ID)
     val appWidgetManager: AppWidgetManager = AppWidgetManager.getInstance(context)
+
+    /** ids of widgets taken off every layout, so views held for them can be forgotten as well */
+    val releasedIds: SharedFlow<List<Int>> get() = workspace.releasedWidgetIds
 
     init {
         scope.launch {

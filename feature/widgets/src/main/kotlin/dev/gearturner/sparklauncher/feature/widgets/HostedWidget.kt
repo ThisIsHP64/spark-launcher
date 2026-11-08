@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -59,6 +60,11 @@ class WidgetViews(private val context: Context, private val hostManager: WidgetH
         view.setPadding(0, 0, 0, 0)
         views[appWidgetId] = view
         return view
+    }
+
+    /** forgets the view of a widget that was removed, so its id can never bring the old view back */
+    fun release(appWidgetId: Int) {
+        views.remove(appWidgetId)
     }
 
     /** drops views tied to the launcher window; the widgets themselves keep running */
@@ -118,26 +124,30 @@ fun HostedWidget(
                 )
             }
         } else {
-            AndroidView(
-                factory = {
-                    // the cached view may still belong to a page that is being disposed
-                    (view.parent as? ViewGroup)?.removeView(view)
-                    view
-                },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .onSizeChanged { size ->
-                        // telling the widget its real size lets it pick the right layout
-                        val sizeDp = with(density) { SizeF(size.width.toDp().value, size.height.toDp().value) }
-                        if (sizeDp.width > 0 && sizeDp.height > 0) {
-                            try {
-                                view.updateAppWidgetSize(Bundle(), listOf(sizeDp))
-                            } catch (e: RuntimeException) {
-                                // a widget whose provider just died ignores the update
-                            }
-                        }
+            // the factory runs once per node, so without a key a node reused for another widget would keep
+            // showing the previous widget's view
+            key(appWidgetId) {
+                AndroidView(
+                    factory = {
+                        // the cached view may still belong to a page that is being disposed
+                        (view.parent as? ViewGroup)?.removeView(view)
+                        view
                     },
-            )
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onSizeChanged { size ->
+                            // telling the widget its real size lets it pick the right layout
+                            val sizeDp = with(density) { SizeF(size.width.toDp().value, size.height.toDp().value) }
+                            if (sizeDp.width > 0 && sizeDp.height > 0) {
+                                try {
+                                    view.updateAppWidgetSize(Bundle(), listOf(sizeDp))
+                                } catch (e: RuntimeException) {
+                                    // a widget whose provider just died ignores the update
+                                }
+                            }
+                        },
+                )
+            }
         }
     }
 }

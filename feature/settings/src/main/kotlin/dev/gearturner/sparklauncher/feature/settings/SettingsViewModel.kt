@@ -14,7 +14,10 @@ import dev.gearturner.sparklauncher.core.model.AppInfo
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gearturner.sparklauncher.core.apps.AppsRepository
+import dev.gearturner.sparklauncher.core.data.AppOverridesRepository
 import dev.gearturner.sparklauncher.core.data.SettingsRepository
+import dev.gearturner.sparklauncher.core.model.AppOverride
+import kotlinx.coroutines.flow.combine
 import dev.gearturner.sparklauncher.core.data.WorkspaceRepository
 import dev.gearturner.sparklauncher.core.icons.IconPackInfo
 import dev.gearturner.sparklauncher.core.icons.IconPackRepository
@@ -38,6 +41,7 @@ class SettingsViewModel @Inject constructor(
     apps: AppsRepository,
     private val iconPacks: IconPackRepository,
     private val notificationDots: NotificationDots,
+    private val overrides: AppOverridesRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -71,6 +75,16 @@ class SettingsViewModel @Inject constructor(
             list.sortedWith { a, b -> collator.compare(a.label, b.label) }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** apps hidden from the drawer, by the name the drawer would show; null until apps have loaded */
+    val hiddenApps: StateFlow<List<HiddenApp>?> = combine(apps.apps.filterNotNull(), overrides.overrides) { installed, appOverrides ->
+        hiddenAppsOf(installed, appOverrides, Collator.getInstance())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** puts an app back in the drawer; in home only mode it also returns to the home pages */
+    fun unhide(key: AppKey) {
+        viewModelScope.launch { overrides.setHidden(key, false) }
+    }
 
     private val _packs = MutableStateFlow<List<IconPackInfo>?>(null)
 
@@ -135,3 +149,15 @@ class SettingsViewModel @Inject constructor(
         const val OPAQUE: Int = 0xFF000000.toInt()
     }
 }
+
+/** an app hidden from the drawer, as the hidden apps list shows it */
+data class HiddenApp(val key: AppKey, val label: String)
+
+/**
+ * the installed apps that are hidden, by their renamed label when they have one, in the drawer's
+ * order. apps hidden and later uninstalled are left out, since there is nothing left to show.
+ */
+internal fun hiddenAppsOf(installed: List<AppInfo>, overrides: Map<AppKey, AppOverride>, collator: Collator): List<HiddenApp> =
+    installed.filter { overrides[it.key]?.hidden == true }
+        .map { app -> HiddenApp(app.key, overrides[app.key]?.customLabel ?: app.label) }
+        .sortedWith { a, b -> collator.compare(a.label, b.label) }

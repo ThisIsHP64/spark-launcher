@@ -25,6 +25,10 @@ import dev.gearturner.sparklauncher.core.ui.DragLayer
 import dev.gearturner.sparklauncher.core.ui.DrawerController
 import dev.gearturner.sparklauncher.core.ui.LocalDragController
 import dev.gearturner.sparklauncher.core.ui.LocalDrawer
+import dev.gearturner.sparklauncher.core.ui.LocalMenuHost
+import dev.gearturner.sparklauncher.core.ui.MenuHost
+import dev.gearturner.sparklauncher.core.ui.MenuHostLayer
+import androidx.activity.compose.BackHandler
 import dev.gearturner.sparklauncher.core.ui.LocalWidgetPicker
 import dev.gearturner.sparklauncher.core.ui.WidgetPickerController
 import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetBinder
@@ -43,6 +47,7 @@ fun LauncherRoot(homePresses: Flow<Unit>, onOpenSettings: () -> Unit) {
     val drawer = rememberDrawerController()
     val dragController = remember { DragController() }
     val widgetPicker = remember { WidgetPickerController() }
+    val menuHost = remember { MenuHost() }
     val widgetPickerViewModel: WidgetPickerViewModel = hiltViewModel()
     val binder = LocalWidgetBinder.current
     val homeViewModel: HomeViewModel = hiltViewModel()
@@ -63,6 +68,7 @@ fun LauncherRoot(homePresses: Flow<Unit>, onOpenSettings: () -> Unit) {
         LocalDragController provides dragController,
         LocalWidgetPicker provides widgetPicker,
         LocalDrawer provides drawer,
+        LocalMenuHost provides menuHost,
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             drawer.travelPx = with(LocalDensity.current) { maxHeight.toPx() }
@@ -88,6 +94,10 @@ fun LauncherRoot(homePresses: Flow<Unit>, onOpenSettings: () -> Unit) {
                     homeViewModel.addWidget(provider.key, span, binder)
                 },
             )
+            // menus sit above home, the drawer, and the picker, but below a dragged item
+            MenuHostLayer(menuHost, dragController)
+            // registered only while a menu is open, so back closes the menu before a folder or the drawer
+            if (menuHost.isOpen) BackHandler { menuHost.dismiss() }
             val showHomeLabels = homeViewModel.state.collectAsStateWithLifecycle().value.settings.showHomeLabels
             DragLayer(dragController, showLabels = showHomeLabels)
         }

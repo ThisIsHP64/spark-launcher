@@ -7,6 +7,7 @@ import dev.gearturner.sparklauncher.core.ui.LocalNotificationDots
 import dev.gearturner.sparklauncher.core.ui.fallbackDotColor
 
 import dev.gearturner.sparklauncher.core.model.SUBGRID
+import dev.gearturner.sparklauncher.core.model.CellPlacement
 
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.compositionLocalOf
@@ -33,6 +34,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -84,6 +86,7 @@ internal fun PageGrid(
 ) {
     val haptics = LocalHapticFeedback.current
     val doubleTap by rememberUpdatedState(onEmptyDoubleTap)
+    val widgetPlacements by rememberUpdatedState(tiles.filterIsInstance<WidgetTile>().map { it.placement })
     var gridCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     BoxWithConstraints(
         modifier = Modifier
@@ -92,13 +95,24 @@ internal fun PageGrid(
             .onGloballyPositioned { gridCoordinates = it }
             // tiles sit above this layer, so only presses on empty space reach it
             // keyed on whether double tap is used, because a double tap listener delays every single tap
-            .pointerInput(onEmptyDoubleTap != null) {
+            .pointerInput(onEmptyDoubleTap != null, columns, rows) {
+                // a widget with transparent areas lets the touch fall through its view to this layer, but
+                // the whole widget rect belongs to the widget, so its own menu is the only one that opens
+                fun onWidget(local: Offset) = isOnWidget(
+                    local,
+                    widgetPlacements,
+                    cellWidthPx = size.width / (columns * SUBGRID).toFloat(),
+                    cellHeightPx = size.height / (rows * SUBGRID).toFloat(),
+                )
                 detectTapGestures(
                     onLongPress = { local ->
+                        if (onWidget(local)) return@detectTapGestures
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         gridCoordinates?.takeIf { it.isAttached }?.let { onEmptyLongPress(it.localToRoot(local)) }
                     },
-                    onDoubleTap = if (onEmptyDoubleTap != null) { _ -> doubleTap?.invoke() } else null,
+                    onDoubleTap = if (onEmptyDoubleTap != null) { local ->
+                        if (!onWidget(local)) doubleTap?.invoke()
+                    } else null,
                 )
             },
     ) {
@@ -106,21 +120,35 @@ internal fun PageGrid(
         val cellWidth = maxWidth / (columns * SUBGRID)
         val cellHeight = maxHeight / (rows * SUBGRID)
         tiles.forEach { tile ->
-            HomeTileView(
-                tile = tile,
-                registryPage = tile.placement.page,
-                iconSize = iconSize,
-                labelStyle = if (showLabels) LabelStyle.OnWallpaper else LabelStyle.Hidden,
-                viewModel = viewModel,
-                onOpenFolder = onOpenFolder,
-                onResizeWidget = onResizeWidget,
-                modifier = Modifier
-                    .offset(x = cellWidth * tile.placement.cellX, y = cellHeight * tile.placement.cellY)
-                    .size(cellWidth * tile.placement.spanX, cellHeight * tile.placement.spanY),
-            )
+            // tiles arrive sorted by position, so moving or removing one reorders the rest; keyed by item,
+            // each tile keeps its own widget view and state instead of inheriting its neighbour's
+            key(tile.itemId) {
+                HomeTileView(
+                    tile = tile,
+                    registryPage = tile.placement.page,
+                    iconSize = iconSize,
+                    labelStyle = if (showLabels) LabelStyle.OnWallpaper else LabelStyle.Hidden,
+                    viewModel = viewModel,
+                    onOpenFolder = onOpenFolder,
+                    onResizeWidget = onResizeWidget,
+                    modifier = Modifier
+                        .offset(x = cellWidth * tile.placement.cellX, y = cellHeight * tile.placement.cellY)
+                        .size(cellWidth * tile.placement.spanX, cellHeight * tile.placement.spanY),
+                )
+            }
         }
     }
 }
+
+/**
+ * whether [point], in the page grid's own coordinates, lies inside any of the widget [placements],
+ * which are in half cells. the far edges are exclusive, matching how cells are laid out.
+ */
+internal fun isOnWidget(point: Offset, placements: List<CellPlacement>, cellWidthPx: Float, cellHeightPx: Float): Boolean =
+    placements.any { p ->
+        point.x >= p.cellX * cellWidthPx && point.x < (p.cellX + p.spanX) * cellWidthPx &&
+            point.y >= p.cellY * cellHeightPx && point.y < (p.cellY + p.spanY) * cellHeightPx
+    }
 
 @Composable
 internal fun Dock(
@@ -140,19 +168,21 @@ internal fun Dock(
     ) {
         val slotWidth = maxWidth / slots
         tiles.forEach { tile ->
-            HomeTileView(
-                tile = tile,
-                registryPage = HomeIconRegistry.DOCK_PAGE,
-                iconSize = iconSize,
-                // the pixel dock omits labels so it reads as a distinct row
-                labelStyle = LabelStyle.Hidden,
-                viewModel = viewModel,
-                onOpenFolder = onOpenFolder,
-                onResizeWidget = {},
-                modifier = Modifier
-                    .offset(x = slotWidth * tile.placement.cellX)
-                    .size(slotWidth, maxHeight),
-            )
+            key(tile.itemId) {
+                HomeTileView(
+                    tile = tile,
+                    registryPage = HomeIconRegistry.DOCK_PAGE,
+                    iconSize = iconSize,
+                    // the pixel dock omits labels so it reads as a distinct row
+                    labelStyle = LabelStyle.Hidden,
+                    viewModel = viewModel,
+                    onOpenFolder = onOpenFolder,
+                    onResizeWidget = {},
+                    modifier = Modifier
+                        .offset(x = slotWidth * tile.placement.cellX)
+                        .size(slotWidth, maxHeight),
+                )
+            }
         }
     }
 }

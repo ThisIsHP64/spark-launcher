@@ -29,6 +29,10 @@ import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.res.pluralStringResource
+import dev.gearturner.sparklauncher.core.model.AppKey
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -109,7 +113,7 @@ private val SwatchColors = listOf(
     0xFFEF6C00, 0xFFD84315, 0xFFC2185B, 0xFF8E24AA, 0xFF5E35B1, 0xFF6D4C41,
 ).map { it.toInt() }
 
-private enum class SettingsPage { MAIN, LOOK, HOME, DRAWER, GESTURES, SEARCH, ABOUT, LIBRARIES, LICENSE }
+private enum class SettingsPage { MAIN, LOOK, HOME, DRAWER, HIDDEN_APPS, GESTURES, SEARCH, ABOUT, LIBRARIES, LICENSE }
 
 /** a short list of sections, each its own page, so no single page grows into a wall of options */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -123,6 +127,7 @@ internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewM
         page = SettingsPage.LICENSE
     }
     BackHandler(enabled = parent != null) { parent?.let { page = it } }
+    val hiddenApps by viewModel.hiddenApps.collectAsStateWithLifecycle()
     // only the main list outlives its page, so coming back keeps its scroll position
     val mainListState = rememberLazyListState()
     val motion = MaterialTheme.motionScheme
@@ -176,7 +181,8 @@ internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewM
                     SettingsPage.MAIN -> mainPage { page = it }
                     SettingsPage.LOOK -> lookPage(settings, viewModel)
                     SettingsPage.HOME -> homePage(settings, viewModel)
-                    SettingsPage.DRAWER -> drawerPage(settings, viewModel)
+                    SettingsPage.DRAWER -> drawerPage(settings, viewModel, hiddenApps?.size) { page = SettingsPage.HIDDEN_APPS }
+                    SettingsPage.HIDDEN_APPS -> hiddenAppsPage(hiddenApps, viewModel::unhide)
                     SettingsPage.GESTURES -> gesturesPage(settings, viewModel)
                     SettingsPage.SEARCH -> searchPage(settings, viewModel)
                     SettingsPage.ABOUT -> aboutPage(onOpenLicense = openLicense, onOpenLibraries = { page = SettingsPage.LIBRARIES })
@@ -192,7 +198,7 @@ internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewM
 /** how many steps from the main page, which decides the slide direction */
 private fun SettingsPage.depth(license: LicenseKind): Int = when (this) {
     SettingsPage.MAIN -> 0
-    SettingsPage.LIBRARIES -> 2
+    SettingsPage.LIBRARIES, SettingsPage.HIDDEN_APPS -> 2
     SettingsPage.LICENSE -> if (license == LicenseKind.GPL3) 2 else 3
     else -> 1
 }
@@ -201,6 +207,7 @@ private fun SettingsPage.depth(license: LicenseKind): Int = when (this) {
 private fun SettingsPage.parent(license: LicenseKind): SettingsPage? = when (this) {
     SettingsPage.MAIN -> null
     SettingsPage.LIBRARIES -> SettingsPage.ABOUT
+    SettingsPage.HIDDEN_APPS -> SettingsPage.DRAWER
     SettingsPage.LICENSE -> if (license == LicenseKind.GPL3) SettingsPage.ABOUT else SettingsPage.LIBRARIES
     else -> SettingsPage.MAIN
 }
@@ -211,6 +218,7 @@ private fun title(page: SettingsPage, license: LicenseKind): String = when (page
     SettingsPage.LOOK -> stringResource(R.string.settings_page_look)
     SettingsPage.HOME -> stringResource(R.string.settings_page_home)
     SettingsPage.DRAWER -> stringResource(R.string.settings_page_drawer)
+    SettingsPage.HIDDEN_APPS -> stringResource(R.string.settings_hidden_apps)
     SettingsPage.GESTURES -> stringResource(R.string.settings_page_gestures)
     SettingsPage.SEARCH -> stringResource(R.string.settings_page_search)
     SettingsPage.ABOUT -> stringResource(R.string.settings_page_about)
@@ -402,10 +410,93 @@ private fun HomeGridCard(settings: LauncherSettings, viewModel: SettingsViewMode
     }
 }
 
-private fun LazyListScope.drawerPage(settings: LauncherSettings, viewModel: SettingsViewModel) {
+private fun LazyListScope.drawerPage(
+    settings: LauncherSettings,
+    viewModel: SettingsViewModel,
+    hiddenCount: Int?,
+    onOpenHidden: () -> Unit,
+) {
     item { SectionHeader(stringResource(R.string.settings_section_grid)) }
     item { DrawerGridCard(settings, viewModel) }
+
+    item { SectionHeader(stringResource(R.string.settings_hidden_apps)) }
+    item {
+        SettingsCard {
+            val summary = when (hiddenCount) {
+                null -> ""
+                0 -> stringResource(R.string.settings_hidden_apps_none)
+                else -> pluralStringResource(R.plurals.settings_hidden_apps_count, hiddenCount, hiddenCount)
+            }
+            PageEntry(Icons.Outlined.VisibilityOff, stringResource(R.string.settings_hidden_apps), summary, onOpenHidden)
+        }
+    }
 }
+
+/** every app hidden from the drawer, each with a way to show it again */
+private fun LazyListScope.hiddenAppsPage(apps: List<HiddenApp>?, onShow: (AppKey) -> Unit) {
+    // nothing is drawn until apps have loaded, so the empty message never flashes before the list
+    if (apps == null) return
+    if (apps.isEmpty()) {
+        item {
+            SettingsCard {
+                Text(
+                    stringResource(R.string.settings_hidden_apps_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                )
+            }
+        }
+        return
+    }
+    item {
+        SettingsCard {
+            apps.forEach { app -> HiddenAppRow(app, onShow) }
+        }
+    }
+    item {
+        Text(
+            stringResource(R.string.settings_hidden_apps_note),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 12.dp),
+        )
+    }
+}
+
+@Composable
+private fun HiddenAppRow(app: HiddenApp, onShow: (AppKey) -> Unit) {
+    val icon = rememberAppIcon(app.key, HiddenAppIconSize)
+    val showLabel = stringResource(R.string.settings_hidden_apps_show_named, app.label)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(HiddenAppIconSize))
+        } else {
+            // a neutral plate keeps rows aligned while an icon loads
+            Box(
+                modifier = Modifier
+                    .size(HiddenAppIconSize)
+                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape),
+            )
+        }
+        Spacer(modifier = Modifier.size(16.dp))
+        Text(app.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        TextButton(
+            onClick = { onShow(app.key) },
+            // the button alone just says show, so talkback hears which app it brings back
+            modifier = Modifier.semantics { contentDescription = showLabel },
+        ) {
+            Text(stringResource(R.string.settings_hidden_apps_show))
+        }
+    }
+}
+
+private val HiddenAppIconSize = 40.dp
 
 /** the same icon size setting as on the home page, shown here beside the drawer preview it changes */
 @Composable

@@ -4,6 +4,12 @@ import android.graphics.Rect as AndroidRect
 import androidx.compose.ui.platform.LocalView
 
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.unit.round
 import androidx.compose.ui.geometry.Rect
 import kotlin.math.roundToInt
 
@@ -113,19 +119,88 @@ fun ItemMenu(
             },
         )
     }
+    val model = MenuModel(groups, owner, onDismiss, onShortcutClick, onPinShortcut)
+    val host = LocalMenuHost.current
+    if (host != null) {
+        HostedItemMenu(host, expanded, onDismiss, placement, model)
+        return
+    }
+    // without a host, such as in previews, the menu falls back to a popup window. a drag that starts
+    // as it opens would reverse its open spring mid flight, so while dragging it is left out entirely
+    if (LocalDragController.current?.isDragging == true) return
     DropdownMenuPopup(expanded = expanded, onDismissRequest = onDismiss, popupPositionProvider = placement) {
-        groups.forEachIndexed { groupIndex, entries ->
-            if (groupIndex > 0) Spacer(Modifier.height(MenuDefaults.GroupSpacing))
-            DropdownMenuGroup(shapes = MenuDefaults.groupShape(groupIndex, groups.size)) {
-                entries.forEachIndexed { index, entry ->
-                    val shape = MenuDefaults.itemShape(index, entries.size).shape
-                    when (entry) {
-                        is MenuEntry.Shortcut -> ShortcutItem(entry.shortcut, shape, owner, onDismiss, onShortcutClick, onPinShortcut)
-                        is MenuEntry.Action -> ActionItem(entry.action, shape, onDismiss)
-                    }
+        MenuItems(model)
+    }
+}
+
+/**
+ * everything a menu shows, as plain data. the host draws from this rather than from a composable
+ * lambda, because compose keeps one lambda instance and swaps its body, which the host cannot see
+ * change; shortcuts that load after the menu opens would then never appear.
+ */
+@Immutable
+internal data class MenuModel(
+    val groups: List<List<MenuEntry>>,
+    val owner: AppKey?,
+    val onDismiss: () -> Unit,
+    val onShortcutClick: (AppShortcut) -> Unit,
+    val onPinShortcut: ((AppShortcut) -> Unit)?,
+)
+
+/** the menu's rows in their groups: shortcuts, then everyday actions, then destructive ones */
+@Composable
+internal fun MenuItems(model: MenuModel) {
+    val groups = model.groups
+    groups.forEachIndexed { groupIndex, entries ->
+        if (groupIndex > 0) Spacer(Modifier.height(MenuDefaults.GroupSpacing))
+        DropdownMenuGroup(shapes = MenuDefaults.groupShape(groupIndex, groups.size)) {
+            entries.forEachIndexed { index, entry ->
+                val shape = MenuDefaults.itemShape(index, entries.size).shape
+                when (entry) {
+                    is MenuEntry.Shortcut -> ShortcutItem(entry.shortcut, shape, model.owner, model.onDismiss, model.onShortcutClick, model.onPinShortcut)
+                    is MenuEntry.Action -> ActionItem(entry.action, shape, model.onDismiss)
                 }
             }
         }
+    }
+}
+
+/**
+ * hands the menu to the window's [MenuHost]. an empty marker takes the place the popup used to, so
+ * the menu is placed against the same parent: the item the menu belongs to.
+ */
+@Composable
+private fun HostedItemMenu(
+    host: MenuHost,
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    placement: DropdownMenuPopupPositionProvider,
+    model: MenuModel,
+) {
+    val menu = remember(host) { host.newMenu() }
+    Box(
+        modifier = Modifier.onGloballyPositioned { coordinates ->
+            val parent = coordinates.parentLayoutCoordinates ?: coordinates
+            if (parent.isAttached) {
+                val topLeft = parent.positionInWindow().round()
+                menu.anchor = IntRect(topLeft, IntSize(parent.size.width, parent.size.height))
+            }
+        },
+    )
+    // applied right after composition, in the same frame the popup used to appear in. only changes
+    // are applied, so a menu the host dropped for a drag is not shown again while its owner catches up
+    val applied = remember(menu) { BooleanArray(1) }
+    SideEffect {
+        menu.model = model
+        menu.onDismiss = onDismiss
+        menu.placement = placement
+        if (applied[0] != expanded) {
+            applied[0] = expanded
+            if (expanded) host.show(menu) else host.hide(menu)
+        }
+    }
+    DisposableEffect(host, menu) {
+        onDispose { host.remove(menu) }
     }
 }
 

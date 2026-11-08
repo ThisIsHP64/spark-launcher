@@ -43,7 +43,17 @@
     <string name="settings_page_home">Home screen</string>
     <string name="settings_page_home_summary">Layout mode, grid, dock, icon size, and labels</string>
     <string name="settings_page_drawer">App drawer</string>
-    <string name="settings_page_drawer_summary">Columns and labels</string>
+    <string name="settings_page_drawer_summary">Columns, labels, and hidden apps</string>
+    <string name="settings_hidden_apps">Hidden apps</string>
+    <string name="settings_hidden_apps_none">No apps are hidden</string>
+    <plurals name="settings_hidden_apps_count">
+        <item quantity="one">%1$d app hidden from the drawer</item>
+        <item quantity="other">%1$d apps hidden from the drawer</item>
+    </plurals>
+    <string name="settings_hidden_apps_empty">No apps are hidden. To hide one, long press it in the app drawer and choose Hide from drawer.</string>
+    <string name="settings_hidden_apps_note">Hidden apps still show up when you search the drawer.</string>
+    <string name="settings_hidden_apps_show">Show</string>
+    <string name="settings_hidden_apps_show_named">Show %1$s in the drawer</string>
     <string name="settings_home_mode">Layout</string>
     <string name="settings_home_mode_drawer">App drawer</string>
     <string name="settings_home_mode_home_only">All apps on home</string>

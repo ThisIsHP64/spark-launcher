@@ -94,6 +94,7 @@ class LauncherActivity : ComponentActivity() {
         widgetViews = WidgetViews(this, widgetHost)
         systemActions = SystemActions(this, appsRepository, ::openSettings)
         lifecycleScope.launch { widgetHost.releaseOrphans() }
+        lifecycleScope.launch { widgetHost.releasedIds.collect { ids -> ids.forEach(widgetViews::release) } }
         setContent {
             // waiting for stored settings avoids drawing every icon twice, once in the wrong style
             val settings by settingsRepository.settings.collectAsStateWithLifecycle(initialValue = null)

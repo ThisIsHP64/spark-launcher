@@ -68,6 +68,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gearturner.sparklauncher.core.data.AddResult
 import dev.gearturner.sparklauncher.core.model.Dragged
@@ -75,6 +77,7 @@ import dev.gearturner.sparklauncher.core.ui.BaseIconSize
 import dev.gearturner.sparklauncher.core.ui.DragController
 import dev.gearturner.sparklauncher.core.ui.DragOrigin
 import dev.gearturner.sparklauncher.core.ui.DragPayload
+import dev.gearturner.sparklauncher.core.ui.DragSession
 import dev.gearturner.sparklauncher.core.ui.DropHandler
 import dev.gearturner.sparklauncher.core.ui.DrawerController
 import dev.gearturner.sparklauncher.core.ui.LocalDragController
@@ -95,8 +98,16 @@ fun HomeScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val dragController = LocalDragController.current
     val session = dragController?.session
+    // a drop onto the empty page past the last one: the page only exists once the item is written, which
+    // for a widget waits on system prompts, so the pager keeps it until then instead of snapping back
+    var landingPage by remember { mutableStateOf<Int?>(null) }
+    var landingSettled by remember { mutableStateOf(false) }
     // while dragging, an empty page waits past the last one so items can start a new page
-    val pagerState = rememberPagerState { state.pages.size + if (session != null) 1 else 0 }
+    val pagerState = rememberPagerState {
+        val landing = landingPage
+        val waiting = session != null || (landing != null && state.pages.size <= landing)
+        state.pages.size + if (waiting) 1 else 0
+    }
     val iconRegistry = LocalHomeIconRegistry.current
     val geometry = remember { HomeGeometry() }
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
@@ -137,6 +148,22 @@ fun HomeScreen(
             }
         }
     }
+    // the landing page is released once the item has created it, or shortly after the drop settles
+    // without one, which means it was refused or cancelled
+    LaunchedEffect(landingPage, landingSettled, state.pages.size) {
+        val landing = landingPage ?: return@LaunchedEffect
+        if (state.pages.size > landing) {
+            landingPage = null
+            landingSettled = false
+        } else if (landingSettled) {
+            delay(LANDING_GRACE_MS)
+            landingPage = null
+            landingSettled = false
+        }
+    }
+    // coming back from an app launched out of a folder is not a home press, so the folder is closed while
+    // the launcher is hidden, where no one sees it shut
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { openFolder = null }
     // resizing ends as soon as anything else moves, so the frame never points at a stale spot
     LaunchedEffect(pagerState) { snapshotFlow { pagerState.currentPage }.collect { resizingId = null } }
     LaunchedEffect(session != null) { if (session != null) resizingId = null }
@@ -163,7 +190,13 @@ fun HomeScreen(
                 return@DropHandler
             }
             val zone = geometry.resolve(ended, pagerState.currentPage)
-            handleDrop(zone, ended.payload, viewModel, binder, onSettled)
+            val newPage = ((zone as? DropZone.Cell)?.target as? DropTarget.Desktop)?.page?.takeIf { it >= state.pages.size }
+            landingSettled = false
+            landingPage = newPage
+            handleDrop(zone, ended.payload, viewModel, binder) {
+                if (newPage != null) landingSettled = true
+                onSettled()
+            }
             // dragging an app out of a folder closes the folder once the app has landed
             if (ended.origin == DragOrigin.Folder) openFolder = null
         }
@@ -172,7 +205,11 @@ fun HomeScreen(
     // while an open folder owns the drag its own edges flip its pages, so home must stay put underneath
     EdgePageFlip(dragController, geometry, pagerState, suspended = { openFolder != null && !folderDrag.leftPanel })
     val backdrop = rememberGraphicsLayer()
-    val recordBackdrop = session != null
+    // the drop bar outlives the drag by its fade out, so it keeps the payload it was built for, and
+    // home keeps recording its blurred backdrop until the bar has gone
+    var barSession by remember { mutableStateOf<DragSession?>(null) }
+    if (session != null && barSession?.payload != session.payload) barSession = session
+    val recordBackdrop = barSession != null
 
     val hovered by remember(dragController) {
         derivedStateOf {
@@ -269,7 +306,8 @@ fun HomeScreen(
                     }
                     .homeSwipes(
                         drawer = drawer,
-                        enabled = session == null,
+                        // read live, since the drag can begin on the very event the swipe is deciding on
+                        enabled = { dragController?.session == null },
                         swipeUpDragsDrawer = state.settings.gestures.swipeUp.action == GestureAction.OPEN_DRAWER,
                         startsOnWidget = { local ->
                             val inRoot = local + rootOrigin
@@ -352,9 +390,9 @@ fun HomeScreen(
                 }
             }
         }
-        if (session != null) {
-            DropHighlight(hovered, rootOrigin)
-            DropBar(session, hovered, geometry, backdrop)
+        if (session != null) DropHighlight(hovered, rootOrigin)
+        barSession?.let { bar ->
+            DropBar(bar, visible = session != null, hovered, geometry, backdrop, onGone = { barSession = null })
         }
         val resizing = resizingId?.let { id ->
             state.pages.getOrNull(pagerState.currentPage)?.firstOrNull { it.itemId == id } as? WidgetTile
@@ -546,3 +584,6 @@ private fun tileAt(state: HomeUiState, target: DropTarget): HomeTile? = when (ta
 }
 
 private const val FOLDER_OPEN_DWELL_MS = 600L
+
+// long enough for the database to report a freshly written page after a drop settles
+private const val LANDING_GRACE_MS = 1000L

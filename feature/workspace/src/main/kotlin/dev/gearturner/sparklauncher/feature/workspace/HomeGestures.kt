@@ -31,7 +31,7 @@ import kotlin.math.abs
 @Composable
 internal fun Modifier.homeSwipes(
     drawer: DrawerController,
-    enabled: Boolean,
+    enabled: () -> Boolean,
     swipeUpDragsDrawer: Boolean,
     startsOnWidget: (Offset) -> Boolean,
     onGesture: (Gesture) -> Unit,
@@ -42,15 +42,17 @@ internal fun Modifier.homeSwipes(
     val systemGestureBottom = WindowInsets.systemGestures.getBottom(density).toFloat()
     val dragsDrawer by rememberUpdatedState(swipeUpDragsDrawer)
     val fire by rememberUpdatedState(onGesture)
-    val active by rememberUpdatedState(enabled)
+    val isEnabled by rememberUpdatedState(enabled)
     val onWidget by rememberUpdatedState(startsOnWidget)
-    // the detector always stays attached and checks [active] instead: removing a pointer input
+    // the detector always stays attached and checks [isEnabled] instead: removing a pointer input
     // node mid gesture makes compose cancel the touch for everything under it, which would end the
-    // very icon drag that turned this detector off
+    // very icon drag that turned this detector off. it is a function read on every event, because a
+    // drag that starts on the same event that crosses touch slop only shows up in snapshot state,
+    // never in a value that waits for the next recomposition
     return pointerInput(drawer, trigger, systemGestureBottom) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
-            if (!active) return@awaitEachGesture
+            if (!isEnabled()) return@awaitEachGesture
             if (down.position.y > size.height - systemGestureBottom) return@awaitEachGesture
             val starts = HashMap<PointerId, Offset>().apply { put(down.id, down.position) }
             val velocity = VelocityTracker().apply { addPosition(down.uptimeMillis, down.position) }
@@ -65,7 +67,7 @@ internal fun Modifier.homeSwipes(
                 // diagonal swipes still count. after a claim it keeps the moves to itself; lifts are left
                 // alone so a cancel can still be told apart from a real release below
                 val early = awaitPointerEvent(PointerEventPass.Initial)
-                if (mayClaim && !claimed && mode == Mode.Undecided && active) {
+                if (mayClaim && !claimed && mode == Mode.Undecided && isEnabled()) {
                     val moved = early.changes.filter { it.pressed }
                     moved.forEach { if (it.id !in starts) starts[it.id] = it.position }
                     val travel = averageTravel(moved.map { it.position - (starts[it.id] ?: it.position) })
@@ -75,6 +77,8 @@ internal fun Modifier.homeSwipes(
                 }
                 if (claimed && mode != Mode.Ignored) early.changes.forEach { if (it.pressed) it.consume() }
                 val event = awaitPointerEvent(PointerEventPass.Main)
+                // read after the tiles below have handled this event, since one may have just started an icon drag
+                val active = isEnabled()
                 val pressed = event.changes.filter { it.pressed }
                 if (pressed.isEmpty()) {
                     if (mode == Mode.Drawer) {
