@@ -1,5 +1,13 @@
 package dev.gearturner.sparklauncher.core.ui
 
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SegmentedListItem
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,7 +23,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
@@ -80,7 +87,7 @@ fun IconPickerDialog(
     var pack by remember { mutableStateOf<IconPackInfo?>(null) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            shape = RoundedCornerShape(28.dp),
+            shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier
                 .fillMaxWidth(0.92f)
@@ -107,7 +114,10 @@ fun IconPickerDialog(
                 }
                 // reset stays in the same spot on every step, so it is always easy to find
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
-                    if (hasCustomIcon) TextButton(onClick = onReset) { Text(stringResource(R.string.ui_icon_picker_reset)) }
+                    if (hasCustomIcon) {
+                        OutlinedButton(onClick = onReset) { Text(stringResource(R.string.ui_icon_picker_reset)) }
+                        Spacer(Modifier.width(8.dp))
+                    }
                     TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_cancel)) }
                 }
             }
@@ -131,7 +141,16 @@ private fun PackList(
                     modifier = Modifier.padding(24.dp),
                 )
             }
-            else -> items(packs, key = { it.packageName }) { pack -> ListRow(pack.label) { onChoose(pack) } }
+            else -> itemsIndexed(packs, key = { _, pack -> pack.packageName }) { index, pack ->
+                SegmentedListItem(
+                    onClick = { onChoose(pack) },
+                    shapes = ListItemDefaults.segmentedShapes(index, packs.size),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = ListItemDefaults.SegmentedGap / 2),
+                    trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                ) {
+                    Text(pack.label)
+                }
+            }
         }
     }
 }
@@ -147,6 +166,7 @@ private fun PackIcons(pack: IconPackInfo, appLabel: String, loadNames: suspend (
         lineLimits = TextFieldLineLimits.SingleLine,
         leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
         placeholder = { Text(stringResource(R.string.ui_icon_picker_search)) },
+        shape = MaterialTheme.shapes.extraLarge,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -167,8 +187,10 @@ private fun PackIcons(pack: IconPackInfo, appLabel: String, loadNames: suspend (
             val icon = rememberPackIcon(pack.packageName, name, 48.dp)
             Column(
                 modifier = Modifier
+                    .padding(2.dp)
+                    .clip(MaterialTheme.shapes.large)
                     .clickable { onPick(name) }
-                    .padding(6.dp),
+                    .padding(4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
@@ -188,18 +210,6 @@ internal fun rankIconNames(names: List<String>, appLabel: String, query: String)
     if (words.isEmpty()) return filtered
     val (matching, rest) = filtered.partition { name -> words.any { name.lowercase(Locale.ROOT).contains(it) } }
     return matching + rest
-}
-
-@Composable
-private fun ListRow(text: String, onClick: () -> Unit) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodyLarge,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-    )
 }
 
 @Composable

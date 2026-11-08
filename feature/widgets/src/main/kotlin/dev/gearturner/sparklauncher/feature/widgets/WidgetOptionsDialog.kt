@@ -1,11 +1,12 @@
 package dev.gearturner.sparklauncher.feature.widgets
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.SegmentedListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -15,10 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import dev.gearturner.sparklauncher.core.model.WidgetOptions
 import kotlin.math.roundToInt
 
@@ -39,25 +37,28 @@ fun WidgetOptionsDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.widget_options_title)) },
         text = {
-            Column {
-                ToggleRow(stringResource(R.string.widget_option_padding), options.padding) { change(options.copy(padding = it)) }
+            // one segmented group, so the five controls read as a single settings card
+            Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
+                ToggleRow(stringResource(R.string.widget_option_padding), options.padding, 0) { change(options.copy(padding = it)) }
                 SliderRow(
                     label = stringResource(R.string.widget_option_corners, options.cornerRadiusDp),
                     value = options.cornerRadiusDp.toFloat(),
                     range = 0f..WidgetOptions.MAX_CORNER_RADIUS_DP.toFloat(),
+                    index = 1,
                 ) { change(options.copy(cornerRadiusDp = it.roundToInt())) }
                 SliderRow(
                     label = stringResource(R.string.widget_option_opacity, options.opacityPercent),
                     value = options.opacityPercent.toFloat(),
                     range = WidgetOptions.MIN_OPACITY_PERCENT.toFloat()..100f,
+                    index = 2,
                 ) { change(options.copy(opacityPercent = it.roundToInt())) }
-                ToggleRow(stringResource(R.string.widget_option_overlap), options.allowOverlap) { change(options.copy(allowOverlap = it)) }
-                ToggleRow(stringResource(R.string.widget_option_free_resize), options.ignoreSizeLimits) {
+                ToggleRow(stringResource(R.string.widget_option_overlap), options.allowOverlap, 3) { change(options.copy(allowOverlap = it)) }
+                ToggleRow(stringResource(R.string.widget_option_free_resize), options.ignoreSizeLimits, 4) {
                     change(options.copy(ignoreSizeLimits = it))
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(options) }) { Text(stringResource(R.string.widget_save)) } },
+        confirmButton = { FilledTonalButton(onClick = { onSave(options) }) { Text(stringResource(R.string.widget_save)) } },
         dismissButton = {
             TextButton(onClick = {
                 onPreview(initial)
@@ -68,22 +69,24 @@ fun WidgetOptionsDialog(
 }
 
 @Composable
-private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun ToggleRow(label: String, checked: Boolean, index: Int, onChange: (Boolean) -> Unit) {
+    SegmentedListItem(
+        onClick = { onChange(!checked) },
+        shapes = ListItemDefaults.segmentedShapes(index, ROW_COUNT),
+        trailingContent = { Switch(checked = checked, onCheckedChange = null) },
     ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
+        Text(label)
     }
 }
 
 @Composable
-private fun SliderRow(label: String, value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
-    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyLarge)
-        Slider(value = value, onValueChange = onChange, valueRange = range)
+private fun SliderRow(label: String, value: Float, range: ClosedFloatingPointRange<Float>, index: Int, onChange: (Float) -> Unit) {
+    SegmentedListItem(
+        shapes = ListItemDefaults.segmentedShapes(index, ROW_COUNT),
+        supportingContent = { Slider(value = value, onValueChange = onChange, valueRange = range) },
+    ) {
+        Text(label)
     }
 }
+
+private const val ROW_COUNT = 5

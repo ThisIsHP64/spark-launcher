@@ -52,10 +52,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -83,6 +80,8 @@ import dev.gearturner.sparklauncher.core.model.ThemeMode
 import dev.gearturner.sparklauncher.core.ui.BaseIconSize
 import dev.gearturner.sparklauncher.core.ui.LocalIconStyle
 import dev.gearturner.sparklauncher.core.ui.rememberAppIcon
+import dev.gearturner.sparklauncher.core.ui.Choice
+import dev.gearturner.sparklauncher.core.ui.ChoiceDialog
 import dev.gearturner.sparklauncher.core.ui.rememberIconShape
 import kotlin.math.roundToInt
 
@@ -604,42 +603,29 @@ private fun IconPackRow(selected: String?, viewModel: SettingsViewModel) {
         Text(current, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (choosing) {
-        val options = listOf<Pair<String?, String>>(null to none) + packs.orEmpty().map { it.packageName to it.label }
-        AlertDialog(
-            onDismissRequest = { choosing = false },
-            title = { Text(stringResource(R.string.settings_icon_pack)) },
-            text = {
-                LazyColumn {
-                    items(options.size) { index ->
-                        val (pkg, label) = options[index]
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    choosing = false
-                                    viewModel.update { it.copy(iconPack = pkg) }
-                                }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(selected = pkg == active?.packageName, onClick = null)
-                            Spacer(modifier = Modifier.size(12.dp))
-                            Text(label)
-                        }
-                    }
-                    if (packs?.isEmpty() == true) {
-                        item {
-                            Text(
-                                stringResource(R.string.settings_icon_pack_empty),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 8.dp),
-                            )
-                        }
-                    }
-                }
+        val choices = listOf(Choice<String?>(null, none)) + packs.orEmpty().map { Choice<String?>(it.packageName, it.label) }
+        ChoiceDialog(
+            title = stringResource(R.string.settings_icon_pack),
+            choices = choices,
+            selected = active?.packageName,
+            onSelect = { pkg ->
+                choosing = false
+                viewModel.update { it.copy(iconPack = pkg) }
             },
-            confirmButton = { TextButton(onClick = { choosing = false }) { Text(stringResource(R.string.settings_close)) } },
+            onDismiss = { choosing = false },
+            // with no packs the only choice is app icons, so the dialog also says where packs come from
+            footer = if (packs?.isEmpty() == true) {
+                {
+                    Text(
+                        stringResource(R.string.settings_icon_pack_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+            } else {
+                null
+            },
         )
     }
 }

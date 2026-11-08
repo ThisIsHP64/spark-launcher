@@ -6,7 +6,8 @@ import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
@@ -60,7 +61,8 @@ fun SparkTheme(
         }
     }
     CompositionLocalProvider(LocalSparkDarkTheme provides dark) {
-        MaterialTheme(colorScheme = colors, content = content)
+        // the expressive theme brings the springier motion and rounder shapes current pixel software uses
+        MaterialExpressiveTheme(colorScheme = colors, motionScheme = MotionScheme.expressive(), content = content)
     }
 }
 

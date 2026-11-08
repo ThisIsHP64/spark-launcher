@@ -49,6 +49,7 @@ import dev.gearturner.sparklauncher.core.ui.LauncherTile
 import dev.gearturner.sparklauncher.core.ui.LocalDragController
 import dev.gearturner.sparklauncher.core.ui.LocalWidgetPicker
 import dev.gearturner.sparklauncher.core.ui.MenuAction
+import dev.gearturner.sparklauncher.core.ui.MenuGroup
 import dev.gearturner.sparklauncher.core.ui.RegisterHomeIcon
 import dev.gearturner.sparklauncher.core.ui.RenameDialog
 import dev.gearturner.sparklauncher.core.ui.rememberLaunchAnchor
@@ -274,13 +275,9 @@ private fun FolderTileView(
         ItemMenu(
             expanded = menuOpen,
             onDismiss = { menuOpen = false },
-            owner = null,
-            loadShortcuts = { emptyList() },
-            onShortcutClick = {},
-            onPinShortcut = null,
             actions = listOf(
                 MenuAction(rename, Icons.Outlined.Edit) { renaming = true },
-                MenuAction(remove, Icons.Outlined.Close) { viewModel.remove(folder.itemId) },
+                MenuAction(remove, Icons.Outlined.Close, MenuGroup.Destructive) { viewModel.remove(folder.itemId) },
             ),
         )
     }
@@ -353,11 +350,11 @@ private fun homeItemActions(
         if (picker != null && cell.shortcut == null && viewModel.hasWidgets(cell.app.key.packageName)) {
             add(MenuAction(widgets, Icons.Outlined.Widgets) { picker.open(cell.app.key.packageName) })
         }
-        add(MenuAction(rename, Icons.Outlined.Edit, onRename))
-        if (cell.shortcut == null && viewModel.canChangeIcon(cell.app.key)) add(MenuAction(changeIcon, Icons.Outlined.Image, onChangeIcon))
-        add(MenuAction(remove, Icons.Outlined.Close) { viewModel.remove(cell.itemId) })
+        add(MenuAction(rename, Icons.Outlined.Edit, onClick = onRename))
+        if (cell.shortcut == null && viewModel.canChangeIcon(cell.app.key)) add(MenuAction(changeIcon, Icons.Outlined.Image, onClick = onChangeIcon))
+        add(MenuAction(remove, Icons.Outlined.Close, MenuGroup.Destructive) { viewModel.remove(cell.itemId) })
         if (viewModel.canUninstall(cell)) {
-            add(MenuAction(uninstall, Icons.Outlined.Delete) { viewModel.uninstall(cell.app.key) })
+            add(MenuAction(uninstall, Icons.Outlined.Delete, MenuGroup.Destructive) { viewModel.uninstall(cell.app.key) })
         }
     }
 }

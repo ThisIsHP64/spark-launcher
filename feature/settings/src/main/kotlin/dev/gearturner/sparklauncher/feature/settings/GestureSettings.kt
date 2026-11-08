@@ -7,22 +7,17 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,7 +25,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -43,6 +37,12 @@ import dev.gearturner.sparklauncher.core.model.GestureAction
 import dev.gearturner.sparklauncher.core.model.GestureBinding
 import dev.gearturner.sparklauncher.core.model.HomeMode
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
+import dev.gearturner.sparklauncher.core.model.AppKey
+import dev.gearturner.sparklauncher.core.ui.Choice
+import dev.gearturner.sparklauncher.core.ui.ChoiceDialog
+import dev.gearturner.sparklauncher.core.ui.rememberAppIcon
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
 
 /** actions in the order the chooser lists them, roughly from most to least common */
 private val ActionOrder = listOf(
@@ -123,69 +123,48 @@ private fun GestureRow(gesture: Gesture, settings: LauncherSettings, viewModel: 
     }
     val save: (GestureBinding) -> Unit = { next -> viewModel.update { it.copy(gestures = it.gestures.with(gesture, next)) } }
     if (choosing) {
-        AlertDialog(
-            onDismissRequest = { choosing = false },
-            title = { Text(gestureTitle(gesture)) },
-            text = {
-                // in home only mode the drawer is search only, so its entry would just repeat open search
-                val homeOnly = settings.homeMode == HomeMode.HOME_ONLY
-                val actions = if (homeOnly) ActionOrder - GestureAction.OPEN_DRAWER else ActionOrder
-                val selected = if (homeOnly && binding.action == GestureAction.OPEN_DRAWER) GestureAction.OPEN_SEARCH else binding.action
-                LazyColumn {
-                    items(actions) { action ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    choosing = false
-                                    if (action == GestureAction.OPEN_APP) pickingApp = true else save(GestureBinding(action))
-                                }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(selected = action == selected, onClick = null)
-                            Spacer(Modifier.size(12.dp))
-                            Column {
-                                Text(actionTitle(action, settings.homeMode))
-                                if (action.needsAccessibilityService) {
-                                    Text(
-                                        stringResource(R.string.gesture_needs_service_hint),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+        // in home only mode the drawer is search only, so its entry would just repeat open search
+        val homeOnly = settings.homeMode == HomeMode.HOME_ONLY
+        val actions = if (homeOnly) ActionOrder - GestureAction.OPEN_DRAWER else ActionOrder
+        val selected = if (homeOnly && binding.action == GestureAction.OPEN_DRAWER) GestureAction.OPEN_SEARCH else binding.action
+        val serviceHint = stringResource(R.string.gesture_needs_service_hint)
+        ChoiceDialog(
+            title = gestureTitle(gesture),
+            choices = actions.map { action ->
+                Choice(action, actionTitle(action, settings.homeMode), supporting = serviceHint.takeIf { action.needsAccessibilityService })
             },
-            confirmButton = { TextButton(onClick = { choosing = false }) { Text(stringResource(R.string.settings_close)) } },
+            selected = selected,
+            onSelect = { action ->
+                choosing = false
+                if (action == GestureAction.OPEN_APP) pickingApp = true else save(GestureBinding(action))
+            },
+            onDismiss = { choosing = false },
         )
     }
     if (pickingApp) {
-        AlertDialog(
-            onDismissRequest = { pickingApp = false },
-            title = { Text(stringResource(R.string.gesture_pick_app)) },
-            text = {
-                LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
-                    items(apps, key = { it.key.toString() }) { app ->
-                        Text(
-                            text = app.label,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    pickingApp = false
-                                    save(GestureBinding(GestureAction.OPEN_APP, app.key))
-                                }
-                                .padding(vertical = 12.dp),
-                        )
-                    }
-                }
+        ChoiceDialog(
+            title = stringResource(R.string.gesture_pick_app),
+            choices = apps.map { app ->
+                Choice(app.key, app.label, leading = { AppChoiceIcon(app.key) })
             },
-            confirmButton = { TextButton(onClick = { pickingApp = false }) { Text(stringResource(R.string.settings_cancel)) } },
+            selected = binding.app,
+            onSelect = { key ->
+                pickingApp = false
+                save(GestureBinding(GestureAction.OPEN_APP, key))
+            },
+            onDismiss = { pickingApp = false },
         )
     }
 }
+
+@Composable
+private fun AppChoiceIcon(key: AppKey) {
+    val icon = rememberAppIcon(key, ChoiceIconSize)
+    if (icon != null) Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(ChoiceIconSize))
+    else Box(Modifier.size(ChoiceIconSize))
+}
+
+private val ChoiceIconSize = 36.dp
 
 @Composable
 private fun gestureTitle(gesture: Gesture): String = stringResource(
@@ -268,7 +247,7 @@ private fun ContactsRow(settings: LauncherSettings, viewModel: SettingsViewModel
             title = { Text(stringResource(R.string.settings_search_contacts)) },
             text = { Text(stringResource(R.string.settings_search_contacts_explain)) },
             confirmButton = {
-                TextButton(onClick = {
+                FilledTonalButton(onClick = {
                     explaining = false
                     request.launch(Manifest.permission.READ_CONTACTS)
                 }) { Text(stringResource(R.string.settings_continue)) }

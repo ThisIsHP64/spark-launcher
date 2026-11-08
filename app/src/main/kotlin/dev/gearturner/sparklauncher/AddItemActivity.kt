@@ -1,5 +1,6 @@
 package dev.gearturner.sparklauncher
 
+import androidx.compose.material3.FilledTonalButton
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.content.pm.LauncherApps
@@ -133,7 +134,7 @@ class AddItemActivity : ComponentActivity() {
                             Text(label, textAlign = TextAlign.Center)
                         }
                     },
-                    confirmButton = { TextButton(onClick = onAdd) { Text(stringResource(R.string.add_shortcut_confirm)) } },
+                    confirmButton = { FilledTonalButton(onClick = onAdd) { Text(stringResource(R.string.add_shortcut_confirm)) } },
                     dismissButton = { TextButton(onClick = ::finish) { Text(stringResource(R.string.add_shortcut_cancel)) } },
                 )
             }

@@ -1,5 +1,7 @@
 package dev.gearturner.sparklauncher.feature.workspace
 
+import dev.gearturner.sparklauncher.core.ui.MenuAction
+import dev.gearturner.sparklauncher.core.ui.ItemMenu
 import dev.gearturner.sparklauncher.core.model.Gesture
 import dev.gearturner.sparklauncher.core.model.GestureAction
 import dev.gearturner.sparklauncher.core.model.effectiveAction
@@ -14,10 +16,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Wallpaper
 import androidx.compose.material.icons.outlined.Widgets
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.ui.unit.IntOffset
 import dev.gearturner.sparklauncher.core.model.Span
 import dev.gearturner.sparklauncher.core.ui.LocalWidgetPicker
@@ -303,40 +301,22 @@ private fun EmptySpaceMenu(at: Offset?, onDismiss: () -> Unit, onWidgets: () -> 
     // the menu animates out after it is dismissed, so it keeps its last spot instead of jumping to the corner
     var anchor by remember { mutableStateOf(Offset.Zero) }
     if (at != null) anchor = at
+    val actions = listOf(
+        MenuAction(stringResource(R.string.workspace_widgets), Icons.Outlined.Widgets, onClick = onWidgets),
+        MenuAction(wallpaperTitle, Icons.Outlined.Wallpaper) {
+            try {
+                context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), wallpaperTitle))
+            } catch (e: ActivityNotFoundException) {
+                // no wallpaper app at all is unusual but possible on stripped down builds
+                Toast.makeText(context, R.string.workspace_no_wallpaper_app, Toast.LENGTH_SHORT).show()
+            }
+        },
+        MenuAction(stringResource(R.string.workspace_settings), Icons.Outlined.Settings, onClick = onSettings),
+    )
     Box(
         modifier = Modifier.offset { IntOffset(anchor.x.roundToInt(), anchor.y.roundToInt()) },
     ) {
-        DropdownMenu(expanded = at != null, onDismissRequest = onDismiss) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.workspace_widgets)) },
-                leadingIcon = { Icon(Icons.Outlined.Widgets, contentDescription = null) },
-                onClick = {
-                    onDismiss()
-                    onWidgets()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(wallpaperTitle) },
-                leadingIcon = { Icon(Icons.Outlined.Wallpaper, contentDescription = null) },
-                onClick = {
-                    onDismiss()
-                    try {
-                        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), wallpaperTitle))
-                    } catch (e: ActivityNotFoundException) {
-                        // no wallpaper app at all is unusual but possible on stripped down builds
-                        Toast.makeText(context, R.string.workspace_no_wallpaper_app, Toast.LENGTH_SHORT).show()
-                    }
-                },
-            )
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.workspace_settings)) },
-                leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-                onClick = {
-                    onDismiss()
-                    onSettings()
-                },
-            )
-        }
+        ItemMenu(expanded = at != null, onDismiss = onDismiss, actions = actions)
     }
 }
 

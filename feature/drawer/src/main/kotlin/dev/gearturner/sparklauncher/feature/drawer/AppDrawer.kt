@@ -91,6 +91,7 @@ import dev.gearturner.sparklauncher.core.ui.IconPickerDialog
 import dev.gearturner.sparklauncher.core.ui.ItemMenu
 import dev.gearturner.sparklauncher.core.ui.LaunchAnchor
 import dev.gearturner.sparklauncher.core.ui.MenuAction
+import dev.gearturner.sparklauncher.core.ui.MenuGroup
 import dev.gearturner.sparklauncher.core.ui.RenameDialog
 import dev.gearturner.sparklauncher.core.ui.BaseIconSize
 import dev.gearturner.sparklauncher.core.ui.DrawerController
@@ -434,15 +435,15 @@ private fun drawerItemActions(
             )
         }
         add(MenuAction(appInfo, Icons.Outlined.Info) { viewModel.openAppInfo(app, anchor.request()) })
-        add(MenuAction(rename, Icons.Outlined.Edit, onRename))
-        if (viewModel.canChangeIcon(entry)) add(MenuAction(changeIcon, Icons.Outlined.Image, onChangeIcon))
+        add(MenuAction(rename, Icons.Outlined.Edit, onClick = onRename))
+        if (viewModel.canChangeIcon(entry)) add(MenuAction(changeIcon, Icons.Outlined.Image, onClick = onChangeIcon))
         add(
             MenuAction(hide, if (entry.hidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff) {
                 viewModel.setHidden(app, !entry.hidden)
             },
         )
         if (viewModel.canUninstall(app)) {
-            add(MenuAction(uninstall, Icons.Outlined.Delete) { viewModel.uninstall(app) })
+            add(MenuAction(uninstall, Icons.Outlined.Delete, MenuGroup.Destructive) { viewModel.uninstall(app) })
         }
     }
 }

@@ -12,4 +12,6 @@
     <string name="ui_icon_picker_reset">Reset</string>
     <string name="ui_icon_picker_no_packs">No icon packs installed. Icon packs from app stores that support Nova or ADW work here.</string>
     <string name="ui_icon_picker_search">Search icons</string>
+    <string name="ui_close">Close</string>
+    <string name="ui_choice_search">Search</string>
 </resources>

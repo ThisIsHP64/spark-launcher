@@ -42,6 +42,7 @@ import dev.gearturner.sparklauncher.core.ui.DragPayload
 import dev.gearturner.sparklauncher.core.ui.ItemMenu
 import dev.gearturner.sparklauncher.core.ui.LocalDragController
 import dev.gearturner.sparklauncher.core.ui.MenuAction
+import dev.gearturner.sparklauncher.core.ui.MenuGroup
 import dev.gearturner.sparklauncher.core.ui.rememberLaunchAnchor
 import dev.gearturner.sparklauncher.feature.widgets.HostedWidget
 import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetBinder
@@ -87,17 +88,13 @@ internal fun WidgetTileView(
         ItemMenu(
             expanded = menuOpen,
             onDismiss = { menuOpen = false },
-            owner = null,
-            loadShortcuts = { emptyList() },
-            onShortcutClick = {},
-            onPinShortcut = null,
             actions = buildList {
                 add(MenuAction(resize, Icons.Outlined.AspectRatio) { onResize(widget) })
                 add(MenuAction(options, Icons.Outlined.Tune) { editingOptions = true })
                 if (widget.provider?.reconfigurable == true) {
                     add(MenuAction(reconfigure, Icons.Outlined.Settings) { viewModel.reconfigureWidget(widget.appWidgetId, binder) })
                 }
-                add(MenuAction(remove, Icons.Outlined.Close) { viewModel.remove(widget.itemId) })
+                add(MenuAction(remove, Icons.Outlined.Close, MenuGroup.Destructive) { viewModel.remove(widget.itemId) })
             },
         )
     }

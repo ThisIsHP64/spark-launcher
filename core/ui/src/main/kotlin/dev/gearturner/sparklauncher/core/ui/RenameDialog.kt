@@ -1,5 +1,7 @@
 package dev.gearturner.sparklauncher.core.ui
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -47,11 +49,12 @@ fun RenameDialog(
                 lineLimits = TextFieldLineLimits.SingleLine,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                 onKeyboardAction = { onConfirm(state.text.toString().ifBlank { null }) },
+                shape = MaterialTheme.shapes.large,
                 modifier = Modifier.focusRequester(focus),
             )
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(state.text.toString().ifBlank { null }) }) {
+            FilledTonalButton(onClick = { onConfirm(state.text.toString().ifBlank { null }) }) {
                 Text(stringResource(R.string.ui_save))
             }
         },
