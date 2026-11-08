@@ -1,5 +1,6 @@
 package dev.gearturner.sparklauncher.feature.workspace
 
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import dev.gearturner.sparklauncher.core.apps.DotKey
 import dev.gearturner.sparklauncher.core.apps.dotKey
 import dev.gearturner.sparklauncher.core.ui.LocalNotificationDots
@@ -174,10 +175,12 @@ private fun HomeTileView(
         scaleX = scale
         scaleY = scale
     }
+    // dragging is the only other way to move things, so talkback gets single step moves instead
+    val moves = if (registryPage == HomeIconRegistry.DOCK_PAGE) emptyList() else moveActions(tile.itemId, viewModel)
     when (tile) {
-        is HomeCell -> HomeItem(tile, registryPage, iconSize, labelStyle, DragOrigin.Home, viewModel, lifted)
-        is FolderTile -> FolderTileView(tile, iconSize, labelStyle, viewModel, onOpenFolder, lifted)
-        is WidgetTile -> WidgetTileView(tile, viewModel, onResizeWidget, modifier)
+        is HomeCell -> HomeItem(tile, registryPage, iconSize, labelStyle, DragOrigin.Home, viewModel, lifted, moves)
+        is FolderTile -> FolderTileView(tile, iconSize, labelStyle, viewModel, onOpenFolder, lifted, moves)
+        is WidgetTile -> WidgetTileView(tile, viewModel, onResizeWidget, modifier, moves)
     }
 }
 
@@ -199,6 +202,7 @@ internal fun HomeItem(
     origin: DragOrigin,
     viewModel: HomeViewModel,
     modifier: Modifier = Modifier,
+    accessibilityActions: List<CustomAccessibilityAction> = emptyList(),
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
@@ -223,6 +227,7 @@ internal fun HomeItem(
             onLongClick = { menuOpen = true },
             dragHandler = dragHandler,
             showDot = cell.hasDot(LocalNotificationDots.current),
+            accessibilityActions = accessibilityActions,
         )
         ItemMenu(
             expanded = menuOpen,
@@ -273,6 +278,7 @@ private fun FolderTileView(
     viewModel: HomeViewModel,
     onOpenFolder: (OpenFolder) -> Unit,
     modifier: Modifier,
+    accessibilityActions: List<CustomAccessibilityAction>,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val anchor = rememberLaunchAnchor()
@@ -302,6 +308,7 @@ private fun FolderTileView(
             dragHandler = dragHandler,
             // a folder holds many apps with different colors, so its dot takes the theme color instead
             dotColor = MaterialTheme.colorScheme.primary.takeIf { folder.children.any { it.hasDot(dots) } },
+            accessibilityActions = accessibilityActions,
         ) {
             FolderPreview(folder, iconSize)
         }
@@ -314,6 +321,31 @@ private fun FolderTileView(
                 MenuAction(rename, Icons.Outlined.Edit) { onOpenFolder(OpenFolder(folder.itemId, anchor.boundsInRoot(), editName = true)) },
                 MenuAction(remove, Icons.Outlined.Close, MenuGroup.Destructive) { viewModel.remove(folder.itemId) },
             ),
+        )
+    }
+}
+
+/** one cell up, down, left or right, or to the neighbouring page, as talkback custom actions */
+@Composable
+internal fun moveActions(itemId: Long, viewModel: HomeViewModel): List<CustomAccessibilityAction> {
+    val left = stringResource(R.string.workspace_a11y_move_left)
+    val right = stringResource(R.string.workspace_a11y_move_right)
+    val up = stringResource(R.string.workspace_a11y_move_up)
+    val down = stringResource(R.string.workspace_a11y_move_down)
+    val previous = stringResource(R.string.workspace_a11y_move_previous_page)
+    val next = stringResource(R.string.workspace_a11y_move_next_page)
+    return remember(itemId, viewModel, left, right, up, down, previous, next) {
+        fun move(label: String, dx: Int, dy: Int, dPage: Int) = CustomAccessibilityAction(label) {
+            viewModel.moveBy(itemId, dx, dy, dPage)
+            true
+        }
+        listOf(
+            move(left, -1, 0, 0),
+            move(right, 1, 0, 0),
+            move(up, 0, -1, 0),
+            move(down, 0, 1, 0),
+            move(previous, 0, 0, -1),
+            move(next, 0, 0, 1),
         )
     }
 }

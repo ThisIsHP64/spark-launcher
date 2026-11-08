@@ -65,6 +65,8 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gearturner.sparklauncher.core.data.AddResult
@@ -210,6 +212,34 @@ fun HomeScreen(
             }
     }
 
+    val homeLabel = stringResource(R.string.workspace_a11y_home)
+    val openDrawerLabel = stringResource(R.string.workspace_a11y_open_drawer)
+    val widgetsLabel = stringResource(R.string.workspace_widgets)
+    val settingsLabel = stringResource(R.string.workspace_a11y_settings)
+    val homeActions = remember(drawer, picker, onOpenSettings, openDrawerLabel, widgetsLabel, settingsLabel) {
+        buildList {
+            add(
+                CustomAccessibilityAction(openDrawerLabel) {
+                    drawer.open()
+                    true
+                },
+            )
+            picker?.let { pickerController ->
+                add(
+                    CustomAccessibilityAction(widgetsLabel) {
+                        pickerController.open()
+                        true
+                    },
+                )
+            }
+            add(
+                CustomAccessibilityAction(settingsLabel) {
+                    onOpenSettings()
+                    true
+                },
+            )
+        }
+    }
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -219,6 +249,12 @@ fun HomeScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    // the drawer, widgets and settings are otherwise reached by a swipe or a long press on
+                    // empty space, neither of which talkback can do, so home offers them as actions
+                    .semantics {
+                        contentDescription = homeLabel
+                        customActions = homeActions
+                    }
                     // recorded so the drop bar can draw a blurred copy of what sits behind it
                     .drawWithContent {
                         backdrop.record { this@drawWithContent.drawContent() }

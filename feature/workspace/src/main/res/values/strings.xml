@@ -20,4 +20,21 @@
     <string name="workspace_no_space">No room on the home screen</string>
     <string name="workspace_launch_failed">Could not open %1$s</string>
     <string name="workspace_page_indicator">Page %1$d of %2$d</string>
+    <string name="workspace_a11y_home">Home screen</string>
+    <string name="workspace_a11y_open_drawer">Open app drawer</string>
+    <string name="workspace_a11y_settings">Spark settings</string>
+    <string name="workspace_a11y_move_left">Move left</string>
+    <string name="workspace_a11y_move_right">Move right</string>
+    <string name="workspace_a11y_move_up">Move up</string>
+    <string name="workspace_a11y_move_down">Move down</string>
+    <string name="workspace_a11y_move_previous_page">Move to previous page</string>
+    <string name="workspace_a11y_move_next_page">Move to next page</string>
+    <string name="workspace_a11y_widget_menu">Widget options</string>
+    <string name="workspace_a11y_resize_frame">Widget size</string>
+    <string name="workspace_a11y_resize_done">Finish resizing</string>
+    <string name="workspace_a11y_wider">Make wider</string>
+    <string name="workspace_a11y_narrower">Make narrower</string>
+    <string name="workspace_a11y_taller">Make taller</string>
+    <string name="workspace_a11y_shorter">Make shorter</string>
+    <string name="workspace_a11y_folder_name">Folder name</string>
 </resources>

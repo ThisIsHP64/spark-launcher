@@ -43,7 +43,6 @@ dependencies {
     implementation(project(":feature:widgets"))
     implementation(project(":feature:search"))
     implementation(project(":feature:settings"))
-    implementation(project(":widgetpack"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

@@ -237,6 +237,32 @@ class HomeViewModel @Inject constructor(
     /** looks the dragged item up by id; the repository re-reads it inside the transaction anyway */
     fun existing(itemId: Long): WorkspaceItem? = latestItems.firstOrNull { it.id == itemId }
 
+    /**
+     * moves a home item one whole cell, or to the same spot on a neighbouring page, for people who
+     * cannot drag, such as talkback users. unlike a drop it never makes or joins a folder: a spot
+     * that is taken, or off the grid, is refused with the usual message.
+     */
+    fun moveBy(itemId: Long, dx: Int, dy: Int, dPage: Int) {
+        viewModelScope.launch {
+            val item = existing(itemId)?.takeIf { it.container == Container.Desktop } ?: return@launch
+            val p = item.placement
+            val page = p.page + dPage
+            if (page < 0) {
+                events.send(HomeEvent.DropRefused)
+                return@launch
+            }
+            val target = DropTarget.Desktop(page, p.cellX + dx * SUBGRID, p.cellY + dy * SUBGRID)
+            val settings = settingsRepository.current()
+            val dragged = Dragged.Existing(item)
+            val plan = workspace.previewDrop(dragged, target, settings.homeColumns, settings.homeRows, settings.dockSlots)
+            if (plan !is DropPlan.Place) {
+                events.send(HomeEvent.DropRefused)
+                return@launch
+            }
+            workspace.drop(dragged, target, settings.homeColumns, settings.homeRows, settings.dockSlots)
+        }
+    }
+
     /** whether a drag carries one app or shortcut, the only things that can join a folder */
     fun isSingleIcon(payload: DragPayload): Boolean = when (payload) {
         is DragPayload.NewApp -> true

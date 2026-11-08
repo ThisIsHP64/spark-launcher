@@ -6,19 +6,17 @@ A fast, clean Android home screen in the spirit of the Pixel launcher, with the 
 
 - **No internet permission.** Spark cannot send anything off your device. A unit test fails the build if the permission ever appears in the merged manifest.
 - No ads, analytics, tracking, crash reporters, Google Play Services, paywalls, or AI features.
-- Optional permissions (calendar, notification access, the gesture accessibility service) are only requested when you enable the feature that needs them.
-- Cloud backup is disabled. You export and import your layout as a file yourself.
+- Optional permissions (contacts in search, notification access for dots, the gesture accessibility service) are only requested when you enable the feature that needs them.
+- Cloud backup is disabled.
 
-## Planned features
+## Features
 
 - Material You theming from your wallpaper or a custom seed color, with scheme variants
 - Slide-up app drawer **or** an all-apps-on-home layout, switchable at any time
-- Custom home, dock and drawer grid sizes
+- Custom home, dock and drawer grid sizes, with optional half cell (subgrid) positioning
 - Icon shapes, a corner radius slider, themed (monochrome) icons and icon pack support
 - Nova-style widget control: free resizing, padding, overlap and corner rounding
-- A bundled, fully offline widget pack (clock, at a glance, calendar, battery, notes and more)
 - Folders, hidden apps, renaming, app shortcuts, gestures, notification dots, work profile and private space support
-- Layout and settings backup and restore
 
 ## App animations
 
@@ -48,7 +46,6 @@ If your default JDK is newer than 21, point Gradle at JDK 21 with `org.gradle.ja
 | `core:theme` | material 3 color schemes |
 | `core:ui` | shared compose components |
 | `feature:*` | workspace, drawer, widgets, search, settings |
-| `widgetpack` | bundled glance widgets |
 
 ## License
 

@@ -1,5 +1,10 @@
 package dev.gearturner.sparklauncher.feature.workspace
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -63,6 +68,7 @@ internal fun WidgetTileView(
     viewModel: HomeViewModel,
     onResize: (WidgetTile) -> Unit,
     modifier: Modifier,
+    accessibilityActions: List<CustomAccessibilityAction>,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var editingOptions by remember { mutableStateOf(false) }
@@ -103,7 +109,16 @@ internal fun WidgetTileView(
     val options = stringResource(R.string.workspace_widget_options)
     val reconfigure = stringResource(R.string.workspace_widget_reconfigure)
     val remove = stringResource(R.string.workspace_remove)
-    Box(modifier = modifier) {
+    val widgetMenu = stringResource(R.string.workspace_a11y_widget_menu)
+    // the widget's own views stay readable by talkback; moving and the menu are offered beside them
+    Box(
+        modifier = modifier.semantics {
+            customActions = accessibilityActions + CustomAccessibilityAction(widgetMenu) {
+                menuOpen = true
+                true
+            }
+        },
+    ) {
         HostedWidget(
             appWidgetId = widget.appWidgetId,
             options = previewOptions ?: widget.options,
@@ -204,16 +219,50 @@ internal fun ResizeFrame(
         }
     }
 
+    // the handles need a drag, so talkback resizes one snap step at a time through actions instead
+    fun stepped(edge: ResizeEdge, sign: Float, horizontal: Boolean): CellPlacement {
+        val stepWidth = geometry.unitWidthPx() * step
+        val stepHeight = geometry.unitHeightPx() * step
+        val drag = if (horizontal) Offset(sign * stepWidth, 0f) else Offset(0f, sign * stepHeight)
+        return edge.resize(widget.placement, drag, stepWidth, stepHeight, step, min, max, gridColumns, gridRows)
+    }
+    val wider = stringResource(R.string.workspace_a11y_wider)
+    val narrower = stringResource(R.string.workspace_a11y_narrower)
+    val taller = stringResource(R.string.workspace_a11y_taller)
+    val shorter = stringResource(R.string.workspace_a11y_shorter)
+    val frameLabel = stringResource(R.string.workspace_a11y_resize_frame)
+    val doneLabel = stringResource(R.string.workspace_a11y_resize_done)
+    val resizeActions = listOf(
+        wider to stepped(ResizeEdge.Right, 1f, horizontal = true),
+        narrower to stepped(ResizeEdge.Right, -1f, horizontal = true),
+        taller to stepped(ResizeEdge.Bottom, 1f, horizontal = false),
+        shorter to stepped(ResizeEdge.Bottom, -1f, horizontal = false),
+    ).map { (label, next) ->
+        CustomAccessibilityAction(label) {
+            if (next != widget.placement) viewModel.resizeWidget(widget.itemId, next)
+            true
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDone),
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClickLabel = doneLabel,
+                onClick = onDone,
+            ),
     ) {
         Box(
             modifier = Modifier
                 .offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
                 .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
-                .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)),
+                .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
+                .semantics {
+                    contentDescription = frameLabel
+                    customActions = resizeActions
+                },
         )
         ResizeEdge.entries.forEach { edge ->
             ResizeHandle(
@@ -248,6 +297,8 @@ private fun ResizeHandle(center: Offset, onDrag: (Offset) -> Unit, onRelease: ()
     Box(
         modifier = Modifier
             .offset { IntOffset((center.x - half).roundToInt(), (center.y - half).roundToInt()) }
+            // talkback resizes through the frame's actions; a handle alone has nothing to announce
+            .clearAndSetSemantics { }
             .size(size)
             .pointerInput(Unit) {
                 var total = Offset.Zero

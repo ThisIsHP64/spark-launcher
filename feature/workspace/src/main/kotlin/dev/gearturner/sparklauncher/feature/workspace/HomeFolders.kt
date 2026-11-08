@@ -1,5 +1,7 @@
 package dev.gearturner.sparklauncher.feature.workspace
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import kotlin.math.floor
 import kotlin.math.ceil
 import kotlinx.coroutines.launch
@@ -266,6 +268,7 @@ internal fun FolderOverlay(
                 .padding(horizontal = PANEL_PADDING, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            val nameLabel = stringResource(R.string.workspace_a11y_folder_name)
             BasicTextField(
                 state = nameState,
                 lineLimits = TextFieldLineLimits.SingleLine,
@@ -296,7 +299,8 @@ internal fun FolderOverlay(
                 },
                 modifier = Modifier
                     .size(width = cellWidth * columns, height = NAME_HEIGHT)
-                    .focusRequester(nameFocus),
+                    .focusRequester(nameFocus)
+                    .semantics { contentDescription = nameLabel },
             )
             FolderGrid(
                 folder = folder,

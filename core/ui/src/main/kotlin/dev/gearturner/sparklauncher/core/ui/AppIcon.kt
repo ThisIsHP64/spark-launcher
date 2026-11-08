@@ -1,5 +1,8 @@
 package dev.gearturner.sparklauncher.core.ui
 
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -107,6 +110,7 @@ fun AppIcon(
     modifier: Modifier = Modifier,
     dragHandler: IconDragHandler? = null,
     showDot: Boolean = false,
+    accessibilityActions: List<CustomAccessibilityAction> = emptyList(),
 ) {
     val bitmap = rememberIcon(source, iconSize)
     SideEffect { anchor.icon = bitmap }
@@ -121,6 +125,7 @@ fun AppIcon(
         modifier = modifier,
         dragHandler = dragHandler,
         dotColor = if (showDot) accent ?: MaterialTheme.colorScheme.primary else null,
+        accessibilityActions = accessibilityActions,
     ) {
         if (bitmap != null) {
             Image(bitmap = bitmap, contentDescription = null, modifier = Modifier.size(iconSize))
@@ -153,6 +158,7 @@ fun LauncherTile(
     modifier: Modifier = Modifier,
     dragHandler: IconDragHandler? = null,
     dotColor: Color? = null,
+    accessibilityActions: List<CustomAccessibilityAction> = emptyList(),
     icon: @Composable () -> Unit,
 ) {
     val hasNotifications = stringResource(R.string.ui_has_notifications)
@@ -170,9 +176,13 @@ fun LauncherTile(
                 dragHandler = dragHandler,
             )
             // the custom detector replaces clickable, so tap and long press are restated for talkback
-            .semantics {
+            // one talkback stop per tile: the icon and its label are read together, and a tile whose
+            // label is hidden, such as in the dock, still says its name
+            .semantics(mergeDescendants = true) {
                 role = Role.Button
+                if (labelStyle == LabelStyle.Hidden) contentDescription = label
                 if (dotColor != null) stateDescription = hasNotifications
+                if (accessibilityActions.isNotEmpty()) customActions = accessibilityActions
                 onClick(label = label) {
                     onClick()
                     true
