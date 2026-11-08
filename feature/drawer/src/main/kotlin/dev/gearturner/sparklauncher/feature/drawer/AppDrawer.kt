@@ -209,7 +209,6 @@ fun AppDrawer(
                 items(state.entries, key = { it.app.key.toString() }) { entry ->
                     DrawerItem(
                         entry = entry,
-                        cornerRadiusPercent = state.settings.iconCornerRadiusPercent,
                         iconScale = state.settings.iconScale,
                         viewModel = viewModel,
                         drawer = drawer,
@@ -279,7 +278,6 @@ private fun SearchField(
 @Composable
 private fun DrawerItem(
     entry: DrawerEntry,
-    cornerRadiusPercent: Int,
     iconScale: Float,
     viewModel: DrawerViewModel,
     drawer: DrawerController,
@@ -307,7 +305,6 @@ private fun DrawerItem(
             source = IconSource.App(app.key),
             label = app.label,
             iconSize = BaseIconSize * iconScale,
-            cornerRadiusPercent = cornerRadiusPercent,
             labelStyle = LabelStyle.OnSurface,
             anchor = anchor,
             onClick = { viewModel.launch(app, anchor.request()) },
@@ -322,7 +319,6 @@ private fun DrawerItem(
             onShortcutClick = { viewModel.launchShortcut(it, anchor.request()) },
             onPinShortcut = { viewModel.pinShortcut(it, app.key) },
             actions = actions,
-            cornerRadiusPercent = cornerRadiusPercent,
         )
     }
     if (renaming) {

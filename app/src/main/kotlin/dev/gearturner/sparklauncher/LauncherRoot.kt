@@ -2,11 +2,11 @@ package dev.gearturner.sparklauncher
 
 import android.app.Activity
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import dev.gearturner.sparklauncher.core.theme.LocalSparkDarkTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.LaunchedEffect
@@ -38,7 +38,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Composable
-fun LauncherRoot(homePresses: Flow<Unit>) {
+fun LauncherRoot(homePresses: Flow<Unit>, onOpenSettings: () -> Unit) {
     val drawer = rememberDrawerController()
     val dragController = remember { DragController() }
     val widgetPicker = remember { WidgetPickerController() }
@@ -75,6 +75,7 @@ fun LauncherRoot(homePresses: Flow<Unit>) {
                 viewModel = homeViewModel,
                 drawer = drawer,
                 homePresses = homePresses,
+                onOpenSettings = onOpenSettings,
                 modifier = Modifier.blurBehindDrawer(drawer),
             )
             AppDrawer(viewModel = drawerViewModel, drawer = drawer)
@@ -95,7 +96,7 @@ fun LauncherRoot(homePresses: Flow<Unit>) {
 @Composable
 private fun SystemBarAppearance(drawer: DrawerController) {
     val view = LocalView.current
-    val darkTheme = isSystemInDarkTheme()
+    val darkTheme = LocalSparkDarkTheme.current
     LaunchedEffect(view, darkTheme) {
         val window = (view.context as? Activity)?.window ?: return@LaunchedEffect
         val controller = WindowCompat.getInsetsController(window, view)

@@ -46,7 +46,6 @@ fun ItemMenu(
     onShortcutClick: (AppShortcut) -> Unit,
     onPinShortcut: ((AppShortcut) -> Unit)?,
     actions: List<MenuAction>,
-    cornerRadiusPercent: Int,
 ) {
     var shortcuts by remember { mutableStateOf<List<AppShortcut>>(emptyList()) }
     LaunchedEffect(expanded) {
@@ -54,7 +53,7 @@ fun ItemMenu(
     }
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
         shortcuts.forEach { shortcut ->
-            val icon = rememberIcon(IconSource.Shortcut(shortcut.key, owner), MenuIconSize, cornerRadiusPercent)
+            val icon = rememberIcon(IconSource.Shortcut(shortcut.key, owner), MenuIconSize)
             val label = if (shortcut.isEnabled) {
                 shortcut.menuLabel
             } else {

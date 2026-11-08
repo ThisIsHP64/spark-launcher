@@ -14,6 +14,7 @@ import dev.gearturner.sparklauncher.core.apps.ShortcutsRepository
 import dev.gearturner.sparklauncher.core.apps.di.ApplicationScope
 import dev.gearturner.sparklauncher.core.model.AppKey
 import dev.gearturner.sparklauncher.core.model.IconSource
+import dev.gearturner.sparklauncher.core.model.IconStyle
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -28,9 +29,9 @@ import kotlinx.coroutines.withContext
 data class IconRequest(
     val source: IconSource,
     val sizePx: Int,
-    val cornerRadiusPercent: Int,
+    val style: IconStyle,
 ) {
-    constructor(key: AppKey, sizePx: Int, cornerRadiusPercent: Int) : this(IconSource.App(key), sizePx, cornerRadiusPercent)
+    constructor(key: AppKey, sizePx: Int, style: IconStyle) : this(IconSource.App(key), sizePx, style)
 
     val packageName: String
         get() = when (source) {
@@ -89,7 +90,7 @@ class IconRepository @Inject constructor(
         val info = apps.activityInfo(key) ?: return@withContext null
         try {
             val drawable = info.getIcon(density()) ?: return@withContext null
-            val bitmap = IconRenderer.render(drawable, request.sizePx, request.cornerRadiusPercent)
+            val bitmap = IconRenderer.render(drawable, request.sizePx, request.style)
             if (info.user != Process.myUserHandle()) applyProfileBadge(bitmap, info.user) else bitmap
         } catch (e: RuntimeException) {
             // a malformed icon resource in one app should only cost that app its icon
@@ -104,16 +105,16 @@ class IconRepository @Inject constructor(
         val owner = source.owner
         val base = withContext(Dispatchers.IO) {
             try {
-                drawable?.let { IconRenderer.render(it, request.sizePx, request.cornerRadiusPercent) }
+                drawable?.let { IconRenderer.render(it, request.sizePx, request.style) }
             } catch (e: RuntimeException) {
                 Log.w(TAG, "shortcut icon render failed for ${source.key.packageName}", e)
                 null
             }
         }
         // a shortcut without its own icon falls back to the app icon, which is what the app would show
-        if (base == null) return owner?.let { load(IconRequest(it, request.sizePx, request.cornerRadiusPercent)) }
+        if (base == null) return owner?.let { load(IconRequest(it, request.sizePx, request.style)) }
         val badgeSize = (request.sizePx * SHORTCUT_BADGE_FRACTION).toInt().coerceAtLeast(1)
-        val badge = owner?.let { load(IconRequest(it, badgeSize, request.cornerRadiusPercent)) } ?: return base
+        val badge = owner?.let { load(IconRequest(it, badgeSize, request.style)) } ?: return base
         // the base bitmap is freshly rendered and not cached yet, so drawing onto it is safe
         val offset = (request.sizePx - badgeSize).toFloat()
         Canvas(base).drawBitmap(badge, offset, offset, null)

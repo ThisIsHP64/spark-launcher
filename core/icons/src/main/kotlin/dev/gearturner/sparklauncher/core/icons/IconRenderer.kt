@@ -6,11 +6,15 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
+import android.graphics.RectF
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Drawable
+import android.os.Build
 import androidx.core.graphics.createBitmap
+import dev.gearturner.sparklauncher.core.model.IconStyle
 
 /** turns any app drawable into a uniformly shaped bitmap so the grid looks consistent */
 internal object IconRenderer {
@@ -22,29 +26,75 @@ internal object IconRenderer {
         xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
     }
 
-    fun render(drawable: Drawable, sizePx: Int, cornerRadiusPercent: Int): Bitmap {
+    fun render(drawable: Drawable, sizePx: Int, style: IconStyle): Bitmap {
+        val bitmap = createBitmap(sizePx, sizePx)
+        val canvas = Canvas(bitmap)
+        val drewThemed = style.themed && drawThemed(canvas, drawable, sizePx, style)
+        if (!drewThemed) {
+            if (drawable is AdaptiveIconDrawable) drawAdaptive(canvas, drawable, sizePx) else drawLegacy(canvas, drawable, sizePx)
+        }
+        applyShapeMask(canvas, sizePx, style)
+        return bitmap
+    }
+
+    /**
+     * draws a palette tinted glyph on a palette colored plate. the app's own monochrome layer is
+     * used when it has one; otherwise, if allowed, a glyph is extracted from the icon itself.
+     * returns false to fall back to the full color icon, which is also what happens when no
+     * convincing glyph can be found.
+     */
+    private fun drawThemed(canvas: Canvas, drawable: Drawable, sizePx: Int, style: IconStyle): Boolean {
+        val adaptive = drawable as? AdaptiveIconDrawable
+        val monochrome = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) adaptive?.monochrome else null
+        val tint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG).apply {
+            colorFilter = PorterDuffColorFilter(style.themedForeground, PorterDuff.Mode.SRC_IN)
+        }
+        if (monochrome != null) {
+            canvas.drawColor(style.themedBackground)
+            monochrome.bounds = adaptiveBounds(sizePx)
+            monochrome.colorFilter = tint.colorFilter
+            monochrome.draw(canvas)
+            monochrome.colorFilter = null
+            return true
+        }
+        if (!style.themedFallback) return false
+        val composite = renderComposite(drawable, sizePx)
+        val glyph = GlyphExtractor.extract(composite)
+        if (glyph == null) {
+            // full picture icons have no logo to lift out, so the whole picture is recolored instead
+            val duotone = GlyphExtractor.duotone(composite, style.themedBackground, style.themedForeground) ?: return false
+            canvas.drawBitmap(duotone, 0f, 0f, Paint(Paint.FILTER_BITMAP_FLAG))
+            return true
+        }
+        canvas.drawColor(style.themedBackground)
+        // real monochrome layers sit inside the safe zone, so the extracted glyph is shrunk to match
+        val inner = sizePx * GlyphExtractor.GLYPH_SCALE
+        val offset = (sizePx - inner) / 2f
+        canvas.drawBitmap(glyph, null, RectF(offset, offset, offset + inner, offset + inner), tint)
+        return true
+    }
+
+    /** the icon as the user would normally see it, unmasked, for glyph extraction */
+    private fun renderComposite(drawable: Drawable, sizePx: Int): Bitmap {
         val bitmap = createBitmap(sizePx, sizePx)
         val canvas = Canvas(bitmap)
         if (drawable is AdaptiveIconDrawable) {
             drawAdaptive(canvas, drawable, sizePx)
         } else {
-            drawLegacy(canvas, drawable, sizePx)
+            drawable.setBounds(0, 0, sizePx, sizePx)
+            drawable.draw(canvas)
         }
-        applyShapeMask(canvas, sizePx, cornerRadiusPercent)
         return bitmap
     }
 
-    fun shapePath(sizePx: Int, cornerRadiusPercent: Int): Path {
-        val radius = sizePx * cornerRadiusPercent.coerceIn(0, 50) / 100f
-        return Path().apply {
-            addRoundRect(0f, 0f, sizePx.toFloat(), sizePx.toFloat(), radius, radius, Path.Direction.CW)
-        }
+    private fun adaptiveBounds(sizePx: Int): Rect {
+        // adaptive layers are larger than the visible area; expanding the bounds makes the safe zone fill the icon
+        val inset = (sizePx * AdaptiveIconDrawable.getExtraInsetFraction()).toInt()
+        return Rect(-inset, -inset, sizePx + inset, sizePx + inset)
     }
 
     private fun drawAdaptive(canvas: Canvas, icon: AdaptiveIconDrawable, sizePx: Int) {
-        // adaptive layers are larger than the visible area; expand bounds so the safe zone fills the bitmap
-        val inset = (sizePx * AdaptiveIconDrawable.getExtraInsetFraction()).toInt()
-        val bounds = Rect(-inset, -inset, sizePx + inset, sizePx + inset)
+        val bounds = adaptiveBounds(sizePx)
         listOfNotNull(icon.background, icon.foreground).forEach { layer ->
             layer.bounds = bounds
             layer.draw(canvas)
@@ -59,9 +109,10 @@ internal object IconRenderer {
         icon.draw(canvas)
     }
 
-    private fun applyShapeMask(canvas: Canvas, sizePx: Int, cornerRadiusPercent: Int) {
+    private fun applyShapeMask(canvas: Canvas, sizePx: Int, style: IconStyle) {
         // clearing the inverse of the shape with an anti-aliased paint gives smooth edges, unlike clipPath
-        val outside = shapePath(sizePx, cornerRadiusPercent).apply { fillType = Path.FillType.INVERSE_WINDING }
+        val outside = IconShapes.path(style.shape, sizePx.toFloat(), style.cornerPercent)
+            .apply { fillType = Path.FillType.INVERSE_WINDING }
         canvas.drawPath(outside, maskPaint)
     }
 }

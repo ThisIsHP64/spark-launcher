@@ -168,7 +168,7 @@ private fun WidgetGroupRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             group.appKey?.let { key ->
-                rememberAppIcon(key, 32.dp, 50)?.let { Image(it, contentDescription = null, modifier = Modifier.size(32.dp)) }
+                rememberAppIcon(key, 32.dp)?.let { Image(it, contentDescription = null, modifier = Modifier.size(32.dp)) }
                 Spacer(modifier = Modifier.width(12.dp))
             }
             Text(group.appLabel, style = MaterialTheme.typography.titleMedium)

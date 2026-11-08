@@ -34,19 +34,20 @@ import dev.gearturner.sparklauncher.core.ui.DragOrigin
 import dev.gearturner.sparklauncher.core.ui.LabelStyle
 import dev.gearturner.sparklauncher.core.ui.RenameDialog
 import dev.gearturner.sparklauncher.core.ui.rememberIcon
+import dev.gearturner.sparklauncher.core.ui.rememberIconShape
 
 private const val FOLDER_COLUMNS = 4
 
 /** a 2x2 preview of the first apps in a folder on a soft plate, like the pixel launcher */
 @Composable
-internal fun FolderPreview(folder: FolderTile, iconSize: Dp, cornerRadiusPercent: Int) {
+internal fun FolderPreview(folder: FolderTile, iconSize: Dp) {
     val miniSize = iconSize * 0.38f
     Box(
         modifier = Modifier
             .size(iconSize)
             .background(
                 MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.9f),
-                RoundedCornerShape(percent = cornerRadiusPercent),
+                rememberIconShape(),
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -54,7 +55,7 @@ internal fun FolderPreview(folder: FolderTile, iconSize: Dp, cornerRadiusPercent
             folder.children.take(4).chunked(2).forEach { pair ->
                 Row(horizontalArrangement = Arrangement.spacedBy(iconSize * 0.06f)) {
                     pair.forEach { child ->
-                        val icon = rememberIcon(child.iconSource, miniSize, cornerRadiusPercent)
+                        val icon = rememberIcon(child.iconSource, miniSize)
                         if (icon != null) {
                             Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(miniSize))
                         } else {
@@ -76,7 +77,6 @@ internal fun FolderOverlay(
     folder: FolderTile,
     draggingOut: Boolean,
     iconSize: Dp,
-    cornerRadiusPercent: Int,
     viewModel: HomeViewModel,
     onClose: () -> Unit,
 ) {
@@ -119,7 +119,6 @@ internal fun FolderOverlay(
                             cell = child,
                             registryPage = null,
                             iconSize = iconSize,
-                            cornerRadiusPercent = cornerRadiusPercent,
                             labelStyle = LabelStyle.OnSurface,
                             origin = DragOrigin.Folder,
                             viewModel = viewModel,

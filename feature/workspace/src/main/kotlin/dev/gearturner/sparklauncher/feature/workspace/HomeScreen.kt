@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Wallpaper
 import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.material3.DropdownMenu
@@ -79,6 +80,7 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     drawer: DrawerController,
     homePresses: Flow<Unit>,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -175,7 +177,6 @@ fun HomeScreen(
                         columns = state.settings.homeColumns,
                         rows = state.settings.homeRows,
                         iconSize = iconSize,
-                        cornerRadiusPercent = state.settings.iconCornerRadiusPercent,
                         showLabels = state.settings.showHomeLabels,
                         viewModel = viewModel,
                         onOpenFolder = { openFolderId = it },
@@ -189,7 +190,6 @@ fun HomeScreen(
                         tiles = state.dock,
                         slots = state.settings.dockSlots,
                         iconSize = iconSize,
-                        cornerRadiusPercent = state.settings.iconCornerRadiusPercent,
                         viewModel = viewModel,
                         onBounds = { geometry.dockBounds = it },
                         onOpenFolder = { openFolderId = it },
@@ -214,6 +214,7 @@ fun HomeScreen(
             at = emptyMenuAt?.minus(rootOrigin),
             onDismiss = { emptyMenuAt = null },
             onWidgets = { picker?.open() },
+            onSettings = onOpenSettings,
         )
         val openFolder = openFolderId?.let { id ->
             (state.pages.flatten() + state.dock).firstOrNull { it.itemId == id } as? FolderTile
@@ -223,7 +224,6 @@ fun HomeScreen(
                 folder = openFolder,
                 draggingOut = session?.origin == DragOrigin.Folder,
                 iconSize = BaseIconSize * state.settings.iconScale,
-                cornerRadiusPercent = state.settings.iconCornerRadiusPercent,
                 viewModel = viewModel,
                 onClose = { openFolderId = null },
             )
@@ -272,7 +272,7 @@ private fun handleDrop(
 
 /** the menu for a long press on empty home space, placed where the finger was */
 @Composable
-private fun EmptySpaceMenu(at: Offset?, onDismiss: () -> Unit, onWidgets: () -> Unit) {
+private fun EmptySpaceMenu(at: Offset?, onDismiss: () -> Unit, onWidgets: () -> Unit, onSettings: () -> Unit) {
     val context = LocalContext.current
     val wallpaperTitle = stringResource(R.string.workspace_wallpaper)
     Box(
@@ -301,6 +301,14 @@ private fun EmptySpaceMenu(at: Offset?, onDismiss: () -> Unit, onWidgets: () -> 
                         // no wallpaper app at all is unusual but possible on stripped down builds
                         Toast.makeText(context, R.string.workspace_no_wallpaper_app, Toast.LENGTH_SHORT).show()
                     }
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.workspace_settings)) },
+                leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+                onClick = {
+                    onDismiss()
+                    onSettings()
                 },
             )
         }

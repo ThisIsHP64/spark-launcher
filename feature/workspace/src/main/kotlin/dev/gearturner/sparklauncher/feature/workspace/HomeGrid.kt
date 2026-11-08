@@ -60,7 +60,6 @@ internal fun PageGrid(
     columns: Int,
     rows: Int,
     iconSize: Dp,
-    cornerRadiusPercent: Int,
     showLabels: Boolean,
     viewModel: HomeViewModel,
     onOpenFolder: (Long) -> Unit,
@@ -89,7 +88,6 @@ internal fun PageGrid(
                 tile = tile,
                 registryPage = tile.placement.page,
                 iconSize = iconSize,
-                cornerRadiusPercent = cornerRadiusPercent,
                 labelStyle = if (showLabels) LabelStyle.OnWallpaper else LabelStyle.Hidden,
                 viewModel = viewModel,
                 onOpenFolder = onOpenFolder,
@@ -107,7 +105,6 @@ internal fun Dock(
     tiles: List<HomeTile>,
     slots: Int,
     iconSize: Dp,
-    cornerRadiusPercent: Int,
     viewModel: HomeViewModel,
     onBounds: (Rect) -> Unit,
     onOpenFolder: (Long) -> Unit,
@@ -125,7 +122,6 @@ internal fun Dock(
                 tile = tile,
                 registryPage = HomeIconRegistry.DOCK_PAGE,
                 iconSize = iconSize,
-                cornerRadiusPercent = cornerRadiusPercent,
                 // the pixel dock omits labels so it reads as a distinct row
                 labelStyle = LabelStyle.Hidden,
                 viewModel = viewModel,
@@ -144,7 +140,6 @@ private fun HomeTileView(
     tile: HomeTile,
     registryPage: Int,
     iconSize: Dp,
-    cornerRadiusPercent: Int,
     labelStyle: LabelStyle,
     viewModel: HomeViewModel,
     onOpenFolder: (Long) -> Unit,
@@ -152,8 +147,8 @@ private fun HomeTileView(
     modifier: Modifier,
 ) {
     when (tile) {
-        is HomeCell -> HomeItem(tile, registryPage, iconSize, cornerRadiusPercent, labelStyle, DragOrigin.Home, viewModel, modifier)
-        is FolderTile -> FolderTileView(tile, iconSize, cornerRadiusPercent, labelStyle, viewModel, onOpenFolder, modifier)
+        is HomeCell -> HomeItem(tile, registryPage, iconSize, labelStyle, DragOrigin.Home, viewModel, modifier)
+        is FolderTile -> FolderTileView(tile, iconSize, labelStyle, viewModel, onOpenFolder, modifier)
         is WidgetTile -> WidgetTileView(tile, viewModel, onResizeWidget, modifier)
     }
 }
@@ -167,7 +162,6 @@ internal fun HomeItem(
     cell: HomeCell,
     registryPage: Int?,
     iconSize: Dp,
-    cornerRadiusPercent: Int,
     labelStyle: LabelStyle,
     origin: DragOrigin,
     viewModel: HomeViewModel,
@@ -189,7 +183,6 @@ internal fun HomeItem(
             source = cell.iconSource,
             label = cell.title,
             iconSize = iconSize,
-            cornerRadiusPercent = cornerRadiusPercent,
             labelStyle = labelStyle,
             anchor = anchor,
             onClick = { viewModel.launch(cell, anchor.request()) },
@@ -204,7 +197,6 @@ internal fun HomeItem(
             onShortcutClick = { viewModel.launchShortcut(it, anchor.request()) },
             onPinShortcut = { viewModel.pinShortcut(it, cell.app.key) },
             actions = actions,
-            cornerRadiusPercent = cornerRadiusPercent,
         )
     }
     if (renaming) {
@@ -224,7 +216,6 @@ internal fun HomeItem(
 private fun FolderTileView(
     folder: FolderTile,
     iconSize: Dp,
-    cornerRadiusPercent: Int,
     labelStyle: LabelStyle,
     viewModel: HomeViewModel,
     onOpenFolder: (Long) -> Unit,
@@ -251,7 +242,7 @@ private fun FolderTileView(
             onLongClick = { menuOpen = true },
             dragHandler = dragHandler,
         ) {
-            FolderPreview(folder, iconSize, cornerRadiusPercent)
+            FolderPreview(folder, iconSize)
         }
         ItemMenu(
             expanded = menuOpen,
@@ -264,7 +255,6 @@ private fun FolderTileView(
                 MenuAction(rename, Icons.Outlined.Edit) { renaming = true },
                 MenuAction(remove, Icons.Outlined.Close) { viewModel.remove(folder.itemId) },
             ),
-            cornerRadiusPercent = cornerRadiusPercent,
         )
     }
     if (renaming) {

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_app_label">Spark Settings</string>
+    <string name="settings_title">Spark settings</string>
+    <string name="settings_back">Back</string>
+    <string name="settings_section_colors">Colors</string>
+    <string name="settings_section_icons">Icons</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_color_source">Color source</string>
+    <string name="settings_color_wallpaper">Wallpaper</string>
+    <string name="settings_color_custom">Custom</string>
+    <string name="settings_custom_color">Accent color</string>
+    <string name="settings_hue">Hue</string>
+    <string name="settings_palette_style">Palette style</string>
+    <string name="settings_style_tonal_spot">Tonal spot</string>
+    <string name="settings_style_vibrant">Vibrant</string>
+    <string name="settings_style_expressive">Expressive</string>
+    <string name="settings_style_fidelity">Fidelity</string>
+    <string name="settings_style_monochrome">Monochrome</string>
+    <string name="settings_icon_shape">Icon shape</string>
+    <string name="settings_shape_circle">Circle</string>
+    <string name="settings_shape_squircle">Squircle</string>
+    <string name="settings_shape_rounded">Rounded</string>
+    <string name="settings_shape_square">Square</string>
+    <string name="settings_shape_teardrop">Teardrop</string>
+    <string name="settings_corner_radius">Corner radius: %1$d%%</string>
+    <string name="settings_themed_icons">Themed icons</string>
+    <string name="settings_themed_icons_summary">Tint icons to match your colors</string>
+    <string name="settings_themed_fallback">Theme every app</string>
+    <string name="settings_themed_fallback_summary">Create themed icons for apps that do not provide one</string>
+    <string name="settings_color_swatch">Color %1$s</string>
+</resources>

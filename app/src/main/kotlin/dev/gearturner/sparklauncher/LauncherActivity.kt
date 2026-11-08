@@ -7,6 +7,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.gearturner.sparklauncher.core.data.SettingsRepository
+import dev.gearturner.sparklauncher.feature.settings.SettingsActivity
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.core.util.Consumer
 import dagger.hilt.android.AndroidEntryPoint
@@ -16,6 +20,7 @@ import dev.gearturner.sparklauncher.core.theme.SparkTheme
 import dev.gearturner.sparklauncher.core.ui.HomeIconRegistry
 import dev.gearturner.sparklauncher.core.ui.LocalHomeIconRegistry
 import dev.gearturner.sparklauncher.core.ui.LocalIconRepository
+import dev.gearturner.sparklauncher.core.ui.ProvideIconStyle
 import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetBinder
 import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetViews
 import dev.gearturner.sparklauncher.feature.widgets.WidgetHostManager
@@ -38,6 +43,9 @@ class LauncherActivity : ComponentActivity() {
 
     @Inject
     lateinit var widgetHost: WidgetHostManager
+
+    @Inject
+    lateinit var settingsRepository: SettingsRepository
 
     private lateinit var widgetBinder: WidgetBindFlow
     private lateinit var widgetViews: WidgetViews
@@ -73,14 +81,19 @@ class LauncherActivity : ComponentActivity() {
         widgetViews = WidgetViews(this, widgetHost)
         lifecycleScope.launch { widgetHost.releaseOrphans() }
         setContent {
-            SparkTheme {
+            // waiting for stored settings avoids drawing every icon twice, once in the wrong style
+            val settings by settingsRepository.settings.collectAsStateWithLifecycle(initialValue = null)
+            val loaded = settings ?: return@setContent
+            SparkTheme(loaded) {
                 CompositionLocalProvider(
                     LocalIconRepository provides iconRepository,
                     LocalHomeIconRegistry provides iconRegistry,
                     LocalWidgetBinder provides widgetBinder,
                     LocalWidgetViews provides widgetViews,
                 ) {
-                    LauncherRoot(homePresses = homePressEvents)
+                    ProvideIconStyle(loaded) {
+                        LauncherRoot(homePresses = homePressEvents, onOpenSettings = ::openSettings)
+                    }
                 }
             }
         }
@@ -114,6 +127,10 @@ class LauncherActivity : ComponentActivity() {
             onReady = { surface, onFinished -> contract.sendEndPosition(target.bounds, surface, onFinished) },
             onDismissed = { target.anchor.hidden = false },
         ).also { it.show() }
+    }
+
+    private fun openSettings() {
+        startActivity(Intent(this, SettingsActivity::class.java))
     }
 
     override fun onStart() {

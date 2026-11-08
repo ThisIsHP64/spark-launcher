@@ -99,7 +99,6 @@ internal fun WidgetTileView(
                 }
                 add(MenuAction(remove, Icons.Outlined.Close) { viewModel.remove(widget.itemId) })
             },
-            cornerRadiusPercent = 50,
         )
     }
     if (editingOptions) {

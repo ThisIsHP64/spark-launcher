@@ -71,4 +71,11 @@ class GridOccupancyTest {
         assertEquals(1.3f, clean.iconScale)
         assertEquals(0, clean.iconCornerRadiusPercent)
     }
+
+    @Test
+    fun sanitizedForcesAnOpaqueSeedAndDropsBogusPacks() {
+        val clean = LauncherSettings(seedColor = 0x00123456, iconPack = "   ").sanitized()
+        assertEquals(0xFF123456.toInt(), clean.seedColor)
+        assertEquals(null, clean.iconPack)
+    }
 }

@@ -11,6 +11,7 @@
     <string name="workspace_widget_reconfigure">Reconfigure</string>
     <string name="workspace_widgets">Widgets</string>
     <string name="workspace_wallpaper">Wallpaper</string>
+    <string name="workspace_settings">Spark settings</string>
     <string name="workspace_no_wallpaper_app">No wallpaper app found</string>
     <string name="workspace_uninstall">Uninstall</string>
     <string name="workspace_shortcut_added">Added to home screen</string>

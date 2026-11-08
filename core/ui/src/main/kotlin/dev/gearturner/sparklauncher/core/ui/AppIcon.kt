@@ -66,15 +66,16 @@ enum class LabelStyle {
 }
 
 @Composable
-fun rememberAppIcon(key: AppKey, size: Dp, cornerRadiusPercent: Int): ImageBitmap? =
-    rememberIcon(IconSource.App(key), size, cornerRadiusPercent)
+fun rememberAppIcon(key: AppKey, size: Dp): ImageBitmap? =
+    rememberIcon(IconSource.App(key), size)
 
 @Composable
-fun rememberIcon(source: IconSource, size: Dp, cornerRadiusPercent: Int): ImageBitmap? {
+fun rememberIcon(source: IconSource, size: Dp): ImageBitmap? {
     val repository = LocalIconRepository.current
     val sizePx = with(LocalDensity.current) { size.roundToPx() }
     val generation by repository.generation.collectAsState()
-    val request = remember(source, sizePx, cornerRadiusPercent) { IconRequest(source, sizePx, cornerRadiusPercent) }
+    val style = LocalIconStyle.current
+    val request = remember(source, sizePx, style) { IconRequest(source, sizePx, style) }
     // seeding from the cache avoids a blank frame when scrolling back to icons already rendered
     val initial = remember(request, generation) { repository.cached(request)?.asImageBitmap() }
     return produceState(initial, request, generation) {
@@ -87,7 +88,6 @@ fun AppIcon(
     source: IconSource,
     label: String,
     iconSize: Dp,
-    cornerRadiusPercent: Int,
     labelStyle: LabelStyle,
     anchor: LaunchAnchor,
     onClick: () -> Unit,
@@ -95,7 +95,7 @@ fun AppIcon(
     modifier: Modifier = Modifier,
     dragHandler: IconDragHandler? = null,
 ) {
-    val bitmap = rememberIcon(source, iconSize, cornerRadiusPercent)
+    val bitmap = rememberIcon(source, iconSize)
     SideEffect { anchor.icon = bitmap }
     LauncherTile(
         label = label,
@@ -116,7 +116,7 @@ fun AppIcon(
                     .size(iconSize)
                     .background(
                         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                        RoundedCornerShape(percent = cornerRadiusPercent),
+                        rememberIconShape(),
                     ),
             )
         }
