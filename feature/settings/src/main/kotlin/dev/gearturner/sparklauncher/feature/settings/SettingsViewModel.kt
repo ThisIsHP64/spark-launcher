@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gearturner.sparklauncher.core.apps.AppsRepository
 import dev.gearturner.sparklauncher.core.data.SettingsRepository
+import dev.gearturner.sparklauncher.core.data.WorkspaceRepository
 import dev.gearturner.sparklauncher.core.icons.IconPackInfo
 import dev.gearturner.sparklauncher.core.icons.IconPackRepository
 import dev.gearturner.sparklauncher.core.model.AppKey
@@ -22,6 +23,7 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val repository: SettingsRepository,
+    private val workspace: WorkspaceRepository,
     apps: AppsRepository,
     private val iconPacks: IconPackRepository,
 ) : ViewModel() {
@@ -50,6 +52,15 @@ class SettingsViewModel @Inject constructor(
 
     fun update(transform: (LauncherSettings) -> LauncherSettings) {
         viewModelScope.launch { repository.update(transform) }
+    }
+
+    /** grid changes also rearrange the layouts so no item is left outside the new grid */
+    fun updateGrid(transform: (LauncherSettings) -> LauncherSettings) {
+        viewModelScope.launch {
+            repository.update(transform)
+            val next = repository.current()
+            workspace.reflow(next.homeColumns, next.homeRows, next.dockSlots)
+        }
     }
 
     private companion object {

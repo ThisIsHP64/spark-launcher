@@ -54,6 +54,9 @@ val LocalIconRepository = staticCompositionLocalOf<IconRepository> {
     error("LocalIconRepository was not provided")
 }
 
+/** how many lines an icon label may use, from settings */
+val LocalLabelLines = staticCompositionLocalOf { 1 }
+
 /** the pixel launcher's base icon size; the user's scale setting multiplies it */
 val BaseIconSize: Dp = 56.dp
 
@@ -183,7 +186,7 @@ fun LauncherTile(
             Text(
                 text = label,
                 style = labelTextStyle(labelStyle),
-                maxLines = 1,
+                maxLines = LocalLabelLines.current,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
             )

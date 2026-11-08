@@ -12,6 +12,8 @@ import dev.gearturner.sparklauncher.core.model.DropPlan
 import dev.gearturner.sparklauncher.core.model.DropTarget
 import dev.gearturner.sparklauncher.core.model.Dragged
 import dev.gearturner.sparklauncher.core.model.WidgetOptions
+import dev.gearturner.sparklauncher.core.model.addMissingApps
+import dev.gearturner.sparklauncher.core.model.reflowLayout
 import dev.gearturner.sparklauncher.core.model.applyDrop
 import dev.gearturner.sparklauncher.core.model.canResize
 import dev.gearturner.sparklauncher.core.model.diffLayout
@@ -23,7 +25,9 @@ import dev.gearturner.sparklauncher.core.model.WorkspaceItem
 import dev.gearturner.sparklauncher.core.model.findFirstFreePlacement
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -40,6 +44,7 @@ sealed interface AddResult {
 @Singleton
 class WorkspaceRepository @Inject constructor(
     private val database: SparkDatabase,
+    private val active: ActiveLayout,
 ) {
     private val dao: WorkspaceDao = database.workspaceDao()
 
@@ -51,28 +56,35 @@ class WorkspaceRepository @Inject constructor(
     // serializes read-then-write placement so two quick adds cannot claim the same cell
     private val placementLock = Mutex()
 
-    val items: Flow<List<WorkspaceItem>> = dao.observeAll().map { rows -> rows.mapNotNull { it.toModelOrNull() } }
+    /** the active mode's layout, switching live when the user changes home mode */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val items: Flow<List<WorkspaceItem>> = active.layout.flatMapLatest { layout ->
+        dao.observe(layout.key).map { rows -> rows.mapNotNull { it.toModelOrNull() } }
+    }
 
-    suspend fun isEmpty(): Boolean = dao.count() == 0
+    suspend fun isEmpty(): Boolean = dao.count(active.current().key) == 0
 
     suspend fun addAppToDesktop(app: AppKey, columns: Int, rows: Int): AddResult = placementLock.withLock {
-        val existing = dao.getAll().mapNotNull { it.toModelOrNull() }
+        val layout = active.current()
+        val existing = loadAll(layout)
         if (existing.any { it.app == app && it.container != Container.Dock && it.type == ItemType.APP }) {
             return@withLock AddResult.AlreadyOnHome
         }
         val desktop = existing.filter { it.container == Container.Desktop }.map { it.placement }
         val placement = findFirstFreePlacement(columns, rows, desktop) ?: return@withLock AddResult.NoSpace
         val item = WorkspaceItem(0, ItemType.APP, Container.Desktop, placement, app)
-        val id = dao.insert(item.toEntity())
+        val id = dao.insert(item.toEntity(layout.key))
         AddResult.Added(item.copy(id = id))
     }
 
     /** writes the starter layout in one transaction-like batch; callers check isEmpty first */
     suspend fun seedDock(apps: List<AppKey>) = placementLock.withLock {
-        val rows = apps.mapIndexed { slot, app ->
-            WorkspaceItem(0, ItemType.APP, Container.Dock, CellPlacement(0, slot, 0), app).toEntity()
+        val layout = active.current().key
+        database.withTransaction {
+            apps.forEachIndexed { slot, app ->
+                dao.insert(WorkspaceItem(0, ItemType.APP, Container.Dock, CellPlacement(0, slot, 0), app).toEntity(layout))
+            }
         }
-        dao.insertAll(rows)
     }
 
     /**
@@ -81,21 +93,25 @@ class WorkspaceRepository @Inject constructor(
      */
     suspend fun remove(itemId: Long): List<WorkspaceItem> = placementLock.withLock {
         database.withTransaction {
-            val before = loadAll()
+            val layout = active.current()
+            val before = loadAll(layout)
             if (before.none { it.id == itemId }) return@withTransaction emptyList()
             val after = normalizeLayout(before.filter { it.id != itemId })
-            writeDiff(before, after)
+            writeDiff(before, after, layout)
         }
     }
 
     /** an uninstalled app's icons would otherwise block their cells forever while staying invisible */
     suspend fun removePackage(packageName: String, userSerial: Long): List<WorkspaceItem> = placementLock.withLock {
         database.withTransaction {
-            val before = loadAll()
-            val after = normalizeLayout(
-                before.filterNot { item -> item.app.let { it != null && it.packageName == packageName && it.userSerial == userSerial } },
-            )
-            writeDiff(before, after)
+            // an uninstalled app is gone from every mode's layout, not just the visible one
+            LayoutId.entries.flatMap { layout ->
+                val before = loadAll(layout)
+                val after = normalizeLayout(
+                    before.filterNot { item -> item.app.let { it != null && it.packageName == packageName && it.userSerial == userSerial } },
+                )
+                writeDiff(before, after, layout)
+            }
         }
     }
 
@@ -106,7 +122,8 @@ class WorkspaceRepository @Inject constructor(
     suspend fun drop(dragged: Dragged, target: DropTarget, columns: Int, rows: Int, dockSlots: Int): DropPlan =
         placementLock.withLock {
             database.withTransaction {
-                val before = loadAll()
+                val layout = active.current()
+                val before = loadAll(layout)
                 val current = when (dragged) {
                     is Dragged.Existing -> Dragged.Existing(
                         before.firstOrNull { it.id == dragged.item.id } ?: return@withTransaction DropPlan.Reject,
@@ -119,34 +136,36 @@ class WorkspaceRepository @Inject constructor(
                 var folderId = 0L
                 if (plan is DropPlan.CreateFolder) {
                     val folder = WorkspaceItem(0, ItemType.FOLDER, plan.occupant.container, plan.occupant.placement, app = null)
-                    folderId = dao.insert(folder.toEntity())
+                    folderId = dao.insert(folder.toEntity(layout.key))
                     working = before + folder.copy(id = folderId)
                 }
-                writeDiff(working, normalizeLayout(applyDrop(working, current, plan, folderId)))
+                writeDiff(working, normalizeLayout(applyDrop(working, current, plan, folderId)), layout)
                 plan
             }
         }
 
     /** answers whether a drop would be accepted, without writing, so a widget is only bound when it fits */
     suspend fun previewDrop(dragged: Dragged, target: DropTarget, columns: Int, rows: Int, dockSlots: Int): DropPlan =
-        placementLock.withLock { planDrop(loadAll(), dragged, target, columns, rows, dockSlots) }
+        placementLock.withLock { planDrop(loadAll(active.current()), dragged, target, columns, rows, dockSlots) }
 
     /** returns false when the new size would leave the grid or cover another item */
     suspend fun resize(itemId: Long, placement: CellPlacement, columns: Int, rows: Int): Boolean = placementLock.withLock {
         database.withTransaction {
-            val before = loadAll()
+            val layout = active.current()
+            val before = loadAll(layout)
             if (!canResize(before, itemId, placement, columns, rows)) return@withTransaction false
             val after = before.map { if (it.id == itemId) it.copy(placement = placement) else it }
-            writeDiff(before, after)
+            writeDiff(before, after, layout)
             true
         }
     }
 
     suspend fun updateWidgetOptions(itemId: Long, options: WidgetOptions) = placementLock.withLock {
         database.withTransaction {
-            val before = loadAll()
+            val layout = active.current()
+            val before = loadAll(layout)
             val after = before.map { if (it.id == itemId) it.copy(widgetOptions = options.sanitized()) else it }
-            writeDiff(before, after)
+            writeDiff(before, after, layout)
         }
     }
 
@@ -154,24 +173,76 @@ class WorkspaceRepository @Inject constructor(
     suspend fun firstFreeDesktopSpot(spanX: Int, spanY: Int, columns: Int, rows: Int): CellPlacement? =
         placementLock.withLock {
             // overlap widgets float above the grid, so they never block a spot
-            val taken = loadAll().filter { it.container == Container.Desktop && !it.overlaps }.map { it.placement }
+            val taken = loadAll(active.current()).filter { it.container == Container.Desktop && !it.overlaps }.map { it.placement }
             findFirstFreePlacement(columns, rows, taken, spanX, spanY)
         }
 
     /** every widget id the layout still uses, for freeing ids orphaned by a crash mid placement */
-    suspend fun widgetIds(): Set<Int> = loadAll().mapNotNull { it.appWidgetId }.toSet()
+    suspend fun widgetIds(): Set<Int> = loadEverywhere().mapNotNull { it.appWidgetId }.toSet()
 
-    private suspend fun loadAll(): List<WorkspaceItem> = dao.getAll().mapNotNull { it.toModelOrNull() }
+    /**
+     * fits every layout into a new grid; called whenever grid or dock size changes so nothing
+     * ends up outside the visible cells where it could never be seen or moved again
+     */
+    suspend fun reflow(columns: Int, rows: Int, dockSlots: Int) = placementLock.withLock {
+        database.withTransaction {
+            LayoutId.entries.forEach { layout ->
+                val before = loadAll(layout)
+                writeDiff(before, normalizeLayout(reflowLayout(before, columns, rows, dockSlots)), layout)
+            }
+        }
+    }
+
+    /**
+     * keeps the home only layout holding every app. the first time it is used it starts as a
+     * copy of the drawer mode layout, so the user's arrangement carries over; after that each
+     * mode's layout is edited on its own.
+     */
+    suspend fun syncHomeOnly(apps: List<AppKey>, columns: Int, rows: Int) = placementLock.withLock {
+        database.withTransaction {
+            if (dao.count(LayoutId.HOME.key) == 0) copyLayout(LayoutId.DRAWER, LayoutId.HOME)
+            val before = loadAll(LayoutId.HOME)
+            writeDiff(before, normalizeLayout(addMissingApps(before, apps, columns, rows)), LayoutId.HOME)
+        }
+    }
+
+    /** folders get new ids in the copy, so their contents are pointed at the copied folder */
+    private suspend fun copyLayout(from: LayoutId, to: LayoutId) {
+        val source = loadAll(from)
+        val folderIds = HashMap<Long, Long>()
+        source.filter { it.type == ItemType.FOLDER }.forEach { folder ->
+            folderIds[folder.id] = dao.insert(folder.copy(id = 0).toEntity(to.key))
+        }
+        source.filter { it.type != ItemType.FOLDER }.forEach { item ->
+            val container = item.container
+            val copied = if (container is Container.Folder) {
+                val newFolder = folderIds[container.folderId] ?: return@forEach
+                item.copy(id = 0, container = Container.Folder(newFolder))
+            } else {
+                item.copy(id = 0)
+            }
+            dao.insert(copied.toEntity(to.key))
+        }
+    }
+
+    private suspend fun loadAll(layout: LayoutId): List<WorkspaceItem> = dao.getAll(layout.key).mapNotNull { it.toModelOrNull() }
+
+    private suspend fun loadEverywhere(): List<WorkspaceItem> = dao.getEverywhere().mapNotNull { it.toModelOrNull() }
 
     /** returns the deleted items */
-    private suspend fun writeDiff(before: List<WorkspaceItem>, after: List<WorkspaceItem>): List<WorkspaceItem> {
+    private suspend fun writeDiff(before: List<WorkspaceItem>, after: List<WorkspaceItem>, layout: LayoutId): List<WorkspaceItem> {
         val diff = diffLayout(before, after)
-        diff.inserts.forEach { dao.insert(it.toEntity()) }
-        diff.updates.forEach { dao.update(it.toEntity()) }
+        diff.inserts.forEach { dao.insert(it.toEntity(layout.key)) }
+        diff.updates.forEach { dao.update(it.toEntity(layout.key)) }
         diff.deletes.forEach { dao.delete(it) }
         val deleted = diff.deletes.toSet()
         val removed = before.filter { it.id in deleted }
-        removed.mapNotNull { it.appWidgetId }.takeIf { it.isNotEmpty() }?.let { releasedWidgets.tryEmit(it) }
+        val removedWidgets = removed.mapNotNull { it.appWidgetId }
+        if (removedWidgets.isNotEmpty()) {
+            // a widget copied into the other mode's layout is still showing there, so its id is kept
+            val stillUsed = loadEverywhere().mapNotNull { it.appWidgetId }.toSet()
+            removedWidgets.filter { it !in stillUsed }.takeIf { it.isNotEmpty() }?.let { releasedWidgets.tryEmit(it) }
+        }
         return removed
     }
 
@@ -184,7 +255,8 @@ class WorkspaceRepository @Inject constructor(
     /** the label is stored as the title so the shortcut stays readable while its app is unavailable */
     suspend fun addShortcutToDesktop(shortcut: ShortcutKey, owner: AppKey, label: String?, columns: Int, rows: Int): AddResult =
         placementLock.withLock {
-            val existing = dao.getAll().mapNotNull { it.toModelOrNull() }
+            val layout = active.current()
+            val existing = loadAll(layout)
             if (existing.any { it.shortcutKey == shortcut }) return@withLock AddResult.AlreadyOnHome
             val desktop = existing.filter { it.container == Container.Desktop }.map { it.placement }
             val placement = findFirstFreePlacement(columns, rows, desktop) ?: return@withLock AddResult.NoSpace
@@ -197,12 +269,13 @@ class WorkspaceRepository @Inject constructor(
                 customTitle = label?.take(MAX_TITLE_LENGTH),
                 shortcutId = shortcut.shortcutId,
             )
-            AddResult.Added(item.copy(id = dao.insert(item.toEntity())))
+            AddResult.Added(item.copy(id = dao.insert(item.toEntity(layout.key))))
         }
 
     /** every shortcut id still placed for a package, which is the set the system should keep pinned */
     suspend fun pinnedShortcutIds(packageName: String, userSerial: Long): Set<String> =
-        dao.getAll().mapNotNull { it.toModelOrNull()?.shortcutKey }
+        // shortcuts placed in either mode's layout must stay pinned
+        loadEverywhere().mapNotNull { it.shortcutKey }
             .filter { it.packageName == packageName && it.userSerial == userSerial }
             .map { it.shortcutId }
             .toSet()

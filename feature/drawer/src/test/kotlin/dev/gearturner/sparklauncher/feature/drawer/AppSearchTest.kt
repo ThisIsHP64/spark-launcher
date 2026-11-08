@@ -49,4 +49,10 @@ class AppSearchTest {
         assertEquals(listOf("Browser"), visibleEntries(entries, "").map { it.app.label })
         assertEquals(listOf("Bank"), visibleEntries(entries, "ban").map { it.app.label })
     }
+
+    @Test
+    fun exactNameRanksAboveLongerPrefixMatches() {
+        val apps = sortApps(listOf(app("Photo Editor"), app("Photos"), app("Photo")), Locale.US)
+        assertEquals("Photo", filterApps(apps, "photo").first().label)
+    }
 }

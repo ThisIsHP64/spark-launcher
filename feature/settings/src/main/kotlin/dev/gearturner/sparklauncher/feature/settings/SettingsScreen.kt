@@ -1,5 +1,23 @@
 package dev.gearturner.sparklauncher.feature.settings
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.style.TextAlign
+import dev.gearturner.sparklauncher.core.model.GridLimits
+import dev.gearturner.sparklauncher.core.model.HomeMode
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -72,17 +90,28 @@ private val SwatchColors = listOf(
     0xFFEF6C00, 0xFFD84315, 0xFFC2185B, 0xFF8E24AA, 0xFF5E35B1, 0xFF6D4C41,
 ).map { it.toInt() }
 
+private enum class SettingsPage { MAIN, LOOK, HOME, DRAWER }
+
+/** a short list of sections, each its own page, so no single page grows into a wall of options */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewModel, onBack: () -> Unit) {
+    var page by rememberSaveable { mutableStateOf(SettingsPage.MAIN) }
+    BackHandler(enabled = page != SettingsPage.MAIN) { page = SettingsPage.MAIN }
+    val title = when (page) {
+        SettingsPage.MAIN -> stringResource(R.string.settings_title)
+        SettingsPage.LOOK -> stringResource(R.string.settings_page_look)
+        SettingsPage.HOME -> stringResource(R.string.settings_page_home)
+        SettingsPage.DRAWER -> stringResource(R.string.settings_page_drawer)
+    }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             LargeTopAppBar(
-                title = { Text(stringResource(R.string.settings_title)) },
+                title = { Text(title) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { if (page == SettingsPage.MAIN) onBack() else page = SettingsPage.MAIN }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.settings_back))
                     }
                 },
@@ -96,44 +125,242 @@ internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewM
                 .fillMaxSize()
                 .navigationBarsPadding(),
         ) {
-            item { SectionHeader(stringResource(R.string.settings_section_colors)) }
-            item { ThemeModeRow(settings.themeMode) { mode -> viewModel.update { it.copy(themeMode = mode) } } }
-            item { ColorSourceRow(settings.colorSource) { source -> viewModel.update { it.copy(colorSource = source) } } }
-            if (settings.colorSource == ColorSource.CUSTOM) {
-                item { SeedColorPicker(settings.seedColor) { color -> viewModel.update { it.copy(seedColor = color) } } }
-            }
-            item { PaletteStyleRow(settings.paletteStyle) { style -> viewModel.update { it.copy(paletteStyle = style) } } }
-            item { PalettePreview() }
-
-            item { SectionHeader(stringResource(R.string.settings_section_icons)) }
-            item { IconPreviewRow(viewModel) }
-            item { IconPackRow(settings.iconPack, viewModel) }
-            item { IconShapeRow(settings.iconShape) { shape -> viewModel.update { it.copy(iconShape = shape) } } }
-            if (settings.iconShape == IconShape.ROUNDED) {
-                item {
-                    CornerSlider(settings.iconCornerRadiusPercent) { percent ->
-                        viewModel.update { it.copy(iconCornerRadiusPercent = percent) }
-                    }
-                }
-            }
-            item {
-                SwitchRow(
-                    title = stringResource(R.string.settings_themed_icons),
-                    summary = stringResource(R.string.settings_themed_icons_summary),
-                    checked = settings.themedIcons,
-                ) { on -> viewModel.update { it.copy(themedIcons = on) } }
-            }
-            item {
-                SwitchRow(
-                    title = stringResource(R.string.settings_themed_fallback),
-                    summary = stringResource(R.string.settings_themed_fallback_summary),
-                    checked = settings.themedIconFallback,
-                    enabled = settings.themedIcons,
-                ) { on -> viewModel.update { it.copy(themedIconFallback = on) } }
+            when (page) {
+                SettingsPage.MAIN -> mainPage { page = it }
+                SettingsPage.LOOK -> lookPage(settings, viewModel)
+                SettingsPage.HOME -> homePage(settings, viewModel)
+                SettingsPage.DRAWER -> drawerPage(settings, viewModel)
             }
             item { Spacer(modifier = Modifier.height(24.dp)) }
         }
     }
+}
+
+private fun LazyListScope.mainPage(open: (SettingsPage) -> Unit) {
+    item {
+        PageEntry(Icons.Outlined.Palette, stringResource(R.string.settings_page_look), stringResource(R.string.settings_page_look_summary)) {
+            open(SettingsPage.LOOK)
+        }
+    }
+    item {
+        PageEntry(Icons.Outlined.GridView, stringResource(R.string.settings_page_home), stringResource(R.string.settings_page_home_summary)) {
+            open(SettingsPage.HOME)
+        }
+    }
+    item {
+        PageEntry(Icons.Outlined.Apps, stringResource(R.string.settings_page_drawer), stringResource(R.string.settings_page_drawer_summary)) {
+            open(SettingsPage.DRAWER)
+        }
+    }
+}
+
+private fun LazyListScope.lookPage(settings: LauncherSettings, viewModel: SettingsViewModel) {
+    item { SectionHeader(stringResource(R.string.settings_section_colors)) }
+    item { ThemeModeRow(settings.themeMode) { mode -> viewModel.update { it.copy(themeMode = mode) } } }
+    item { ColorSourceRow(settings.colorSource) { source -> viewModel.update { it.copy(colorSource = source) } } }
+    if (settings.colorSource == ColorSource.CUSTOM) {
+        item { SeedColorPicker(settings.seedColor) { color -> viewModel.update { it.copy(seedColor = color) } } }
+    }
+    item { PaletteStyleRow(settings.paletteStyle) { style -> viewModel.update { it.copy(paletteStyle = style) } } }
+    item { PalettePreview() }
+
+    item { SectionHeader(stringResource(R.string.settings_section_icons)) }
+    item { IconPreviewRow(viewModel) }
+    item { IconPackRow(settings.iconPack, viewModel) }
+    item { IconShapeRow(settings.iconShape) { shape -> viewModel.update { it.copy(iconShape = shape) } } }
+    if (settings.iconShape == IconShape.ROUNDED) {
+        item {
+            CornerSlider(settings.iconCornerRadiusPercent) { percent ->
+                viewModel.update { it.copy(iconCornerRadiusPercent = percent) }
+            }
+        }
+    }
+    item {
+        SwitchRow(
+            title = stringResource(R.string.settings_themed_icons),
+            summary = stringResource(R.string.settings_themed_icons_summary),
+            checked = settings.themedIcons,
+        ) { on -> viewModel.update { it.copy(themedIcons = on) } }
+    }
+    item {
+        SwitchRow(
+            title = stringResource(R.string.settings_themed_fallback),
+            summary = stringResource(R.string.settings_themed_fallback_summary),
+            checked = settings.themedIconFallback,
+            enabled = settings.themedIcons,
+        ) { on -> viewModel.update { it.copy(themedIconFallback = on) } }
+    }
+}
+
+private fun LazyListScope.homePage(settings: LauncherSettings, viewModel: SettingsViewModel) {
+    item { HomeModeRow(settings.homeMode) { mode -> viewModel.update { it.copy(homeMode = mode) } } }
+    item { SectionHeader(stringResource(R.string.settings_section_grid)) }
+    item { GridPreview(settings) }
+    item {
+        Stepper(stringResource(R.string.settings_columns), settings.homeColumns, GridLimits.HOME_COLUMNS) { value ->
+            viewModel.updateGrid { it.copy(homeColumns = value) }
+        }
+    }
+    item {
+        Stepper(stringResource(R.string.settings_rows), settings.homeRows, GridLimits.HOME_ROWS) { value ->
+            viewModel.updateGrid { it.copy(homeRows = value) }
+        }
+    }
+    item {
+        Stepper(
+            stringResource(R.string.settings_dock),
+            settings.dockSlots,
+            GridLimits.DOCK_SLOTS,
+            display = { if (it == 0) stringResource(R.string.settings_dock_hidden) else it.toString() },
+        ) { value -> viewModel.updateGrid { it.copy(dockSlots = value) } }
+    }
+    item { SectionHeader(stringResource(R.string.settings_section_icons)) }
+    item { IconScaleSlider(settings.iconScale) { scale -> viewModel.update { it.copy(iconScale = scale) } } }
+    item {
+        SwitchRow(
+            title = stringResource(R.string.settings_home_labels),
+            summary = stringResource(R.string.settings_home_labels_summary),
+            checked = settings.showHomeLabels,
+        ) { on -> viewModel.update { it.copy(showHomeLabels = on) } }
+    }
+    item {
+        SegmentedSetting(
+            label = stringResource(R.string.settings_label_lines),
+            options = listOf(1 to stringResource(R.string.settings_label_lines_one), 2 to stringResource(R.string.settings_label_lines_two)),
+            selected = settings.labelLines,
+        ) { lines -> viewModel.update { it.copy(labelLines = lines) } }
+    }
+}
+
+private fun LazyListScope.drawerPage(settings: LauncherSettings, viewModel: SettingsViewModel) {
+    item {
+        Stepper(stringResource(R.string.settings_columns), settings.drawerColumns, GridLimits.DRAWER_COLUMNS) { value ->
+            viewModel.update { it.copy(drawerColumns = value) }
+        }
+    }
+    item {
+        SwitchRow(
+            title = stringResource(R.string.settings_drawer_labels),
+            summary = stringResource(R.string.settings_drawer_labels_summary),
+            checked = settings.showDrawerLabels,
+        ) { on -> viewModel.update { it.copy(showDrawerLabels = on) } }
+    }
+}
+
+@Composable
+private fun PageEntry(icon: ImageVector, title: String, summary: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(modifier = Modifier.size(20.dp))
+        Column {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun HomeModeRow(selected: HomeMode, onSelect: (HomeMode) -> Unit) {
+    SegmentedSetting(
+        label = stringResource(R.string.settings_home_mode),
+        options = listOf(
+            HomeMode.DRAWER to stringResource(R.string.settings_home_mode_drawer),
+            HomeMode.HOME_ONLY to stringResource(R.string.settings_home_mode_home_only),
+        ),
+        selected = selected,
+        onSelect = onSelect,
+    )
+    Text(
+        stringResource(
+            if (selected == HomeMode.DRAWER) R.string.settings_home_mode_drawer_summary else R.string.settings_home_mode_home_only_summary,
+        ),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+    )
+}
+
+/** a phone shaped sketch of the grid and dock, at the screen's own proportions */
+@Composable
+private fun GridPreview(settings: LauncherSettings) {
+    val config = LocalConfiguration.current
+    val aspect = config.screenWidthDp.toFloat() / config.screenHeightDp.coerceAtLeast(1)
+    val dot = MaterialTheme.colorScheme.primary
+    val dockDot = MaterialTheme.colorScheme.tertiary
+    val frame = MaterialTheme.colorScheme.surfaceContainerHighest
+    val description = stringResource(R.string.settings_grid_preview, settings.homeColumns, settings.homeRows, settings.dockSlots)
+    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+        Canvas(
+            modifier = Modifier
+                .height(220.dp)
+                .aspectRatio(aspect)
+                .semantics { contentDescription = description },
+        ) {
+            drawRoundRect(frame, cornerRadius = CornerRadius(24.dp.toPx()))
+            val pad = 12.dp.toPx()
+            val dockHeight = if (settings.dockSlots > 0) size.height * 0.12f else 0f
+            val gridHeight = size.height - 2 * pad - dockHeight - pad
+            val cellW = (size.width - 2 * pad) / settings.homeColumns
+            val cellH = gridHeight / settings.homeRows
+            val radius = minOf(cellW, cellH) * 0.28f
+            for (row in 0 until settings.homeRows) {
+                for (col in 0 until settings.homeColumns) {
+                    drawCircle(dot, radius, Offset(pad + cellW * (col + 0.5f), pad + cellH * (row + 0.5f)))
+                }
+            }
+            if (settings.dockSlots > 0) {
+                val slotW = (size.width - 2 * pad) / settings.dockSlots
+                val y = size.height - pad - dockHeight / 2f
+                for (slot in 0 until settings.dockSlots) drawCircle(dockDot, radius, Offset(pad + slotW * (slot + 0.5f), y))
+            }
+        }
+    }
+}
+
+@Composable
+private fun Stepper(
+    label: String,
+    value: Int,
+    range: IntRange,
+    display: @Composable (Int) -> String = { it.toString() },
+    onChange: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        IconButton(onClick = { onChange(value - 1) }, enabled = value > range.first) {
+            Icon(Icons.Filled.Remove, contentDescription = stringResource(R.string.settings_decrease, label))
+        }
+        Text(display(value), style = MaterialTheme.typography.titleMedium, modifier = Modifier.width(56.dp), textAlign = TextAlign.Center)
+        IconButton(onClick = { onChange(value + 1) }, enabled = value < range.last) {
+            Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.settings_increase, label))
+        }
+    }
+}
+
+@Composable
+private fun IconScaleSlider(scale: Float, onChange: (Float) -> Unit) {
+    var value by remember(scale) { mutableFloatStateOf(scale * 100f) }
+    SettingLabel(stringResource(R.string.settings_icon_size, value.roundToInt()))
+    Slider(
+        value = value,
+        onValueChange = { value = it },
+        // icons re-render once per release instead of once per frame of the drag
+        onValueChangeFinished = { onChange(value.roundToInt() / 100f) },
+        valueRange = GridLimits.ICON_SCALE_MIN * 100f..GridLimits.ICON_SCALE_MAX * 100f,
+        steps = 11,
+        modifier = Modifier.padding(horizontal = 24.dp),
+    )
 }
 
 @Composable

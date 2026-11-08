@@ -15,6 +15,8 @@ import dev.gearturner.sparklauncher.core.model.Span
 import dev.gearturner.sparklauncher.core.model.WidgetOptions
 import dev.gearturner.sparklauncher.core.model.ShortcutKey
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.runTest
@@ -34,6 +36,13 @@ class WorkspaceRepositoryTest {
 
     private lateinit var db: SparkDatabase
     private lateinit var repository: WorkspaceRepository
+    private val mode = MutableStateFlow(LayoutId.DRAWER)
+
+    /** the mode switch, without a settings store behind it */
+    private val activeLayout = object : ActiveLayout {
+        override val layout = mode
+        override suspend fun current() = mode.value
+    }
 
     private fun app(name: String) = AppKey("com.example.$name", "com.example.$name.Main", 0)
 
@@ -42,7 +51,7 @@ class WorkspaceRepositoryTest {
         db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), SparkDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        repository = WorkspaceRepository(db)
+        repository = WorkspaceRepository(db, activeLayout)
     }
 
     @After
@@ -178,5 +187,55 @@ class WorkspaceRepositoryTest {
         yield()
         repository.remove(widget.id)
         assertEquals(listOf(77), released.await())
+    }
+
+    @Test
+    fun homeOnlyStartsAsACopyAndThenEachModeKeepsItsOwnLayout() = runTest {
+        val a = (repository.addAppToDesktop(app("a"), 4, 5) as AddResult.Added).item
+        repository.addAppToDesktop(app("b"), 4, 5)
+        repository.drop(Dragged.Existing(a), DropTarget.Desktop(0, 1, 0), 4, 5, 4)
+
+        repository.syncHomeOnly(listOf(app("a"), app("b"), app("c")), 4, 5)
+        mode.value = LayoutId.HOME
+        val home = repository.items.first()
+        // the folder came along with both apps inside, and the missing app was added
+        val folder = home.single { it.type == ItemType.FOLDER }
+        assertEquals(2, home.count { it.container == Container.Folder(folder.id) })
+        assertTrue(home.any { it.app == app("c") && it.container == Container.Desktop })
+
+        repository.remove(home.single { it.app == app("c") }.id)
+        mode.value = LayoutId.DRAWER
+        val drawer = repository.items.first()
+        assertEquals(3, drawer.size)
+        assertTrue(drawer.none { it.app == app("c") })
+    }
+
+    @Test
+    fun aWidgetSharedByBothLayoutsKeepsItsIdUntilBothRemoveIt() = runTest {
+        val provider = AppKey("com.example.clock", "com.example.clock.Widget", 0)
+        repository.drop(Dragged.NewWidget(provider, 55, Span(2, 1)), DropTarget.Desktop(0, 0, 0), 4, 5, 4)
+        repository.syncHomeOnly(emptyList(), 4, 5)
+
+        val released = mutableListOf<Int>()
+        val collector = backgroundScope.launch { repository.releasedWidgetIds.collect { released += it } }
+        yield()
+        repository.remove(repository.items.first().single().id)
+        yield()
+        assertTrue(released.isEmpty())
+
+        mode.value = LayoutId.HOME
+        repository.remove(repository.items.first().single().id)
+        yield()
+        assertEquals(listOf(55), released)
+        collector.cancel()
+    }
+
+    @Test
+    fun reflowFitsEveryLayoutIntoASmallerGrid() = runTest {
+        repeat(6) { repository.addAppToDesktop(app("r$it"), 3, 2) }
+        repository.reflow(columns = 2, rows = 2, dockSlots = 4)
+        val placements = repository.items.first().map { it.placement }
+        assertTrue(placements.all { it.cellX < 2 && it.cellY < 2 })
+        assertEquals(6, placements.distinct().size)
     }
 }

@@ -9,23 +9,24 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface WorkspaceDao {
 
-    @Query("SELECT * FROM workspace_items ORDER BY container, page, cell_y, cell_x")
-    fun observeAll(): Flow<List<WorkspaceItemEntity>>
+    @Query("SELECT * FROM workspace_items WHERE layout = :layout ORDER BY container, page, cell_y, cell_x")
+    fun observe(layout: String): Flow<List<WorkspaceItemEntity>>
 
+    @Query("SELECT * FROM workspace_items WHERE layout = :layout")
+    suspend fun getAll(layout: String): List<WorkspaceItemEntity>
+
+    /** every layout at once, for ids that are shared between them such as widgets */
     @Query("SELECT * FROM workspace_items")
-    suspend fun getAll(): List<WorkspaceItemEntity>
+    suspend fun getEverywhere(): List<WorkspaceItemEntity>
 
     @Query("SELECT * FROM workspace_items WHERE id = :id")
     suspend fun getById(id: Long): WorkspaceItemEntity?
 
-    @Query("SELECT COUNT(*) FROM workspace_items")
-    suspend fun count(): Int
+    @Query("SELECT COUNT(*) FROM workspace_items WHERE layout = :layout")
+    suspend fun count(layout: String): Int
 
     @Insert
     suspend fun insert(item: WorkspaceItemEntity): Long
-
-    @Insert
-    suspend fun insertAll(items: List<WorkspaceItemEntity>)
 
     @Update
     suspend fun update(item: WorkspaceItemEntity)

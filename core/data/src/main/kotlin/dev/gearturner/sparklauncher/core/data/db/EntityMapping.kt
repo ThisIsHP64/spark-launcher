@@ -40,7 +40,7 @@ internal fun WorkspaceItemEntity.toModelOrNull(): WorkspaceItem? {
     )
 }
 
-internal fun WorkspaceItem.toEntity(): WorkspaceItemEntity = WorkspaceItemEntity(
+internal fun WorkspaceItem.toEntity(layout: String): WorkspaceItemEntity = WorkspaceItemEntity(
     id = id,
     type = type.name,
     container = when (container) {
@@ -60,6 +60,7 @@ internal fun WorkspaceItem.toEntity(): WorkspaceItemEntity = WorkspaceItemEntity
     customTitle = customTitle,
     shortcutId = shortcutId,
     appWidgetId = appWidgetId,
+    layout = layout,
     // defaults are left as null so untouched widgets pick up any future change to the defaults
     widgetOptions = widgetOptions.takeIf { it != WidgetOptions() }?.let { optionsJson.encodeToString(WidgetOptions.serializer(), it) },
 )

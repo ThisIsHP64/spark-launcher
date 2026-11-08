@@ -6,39 +6,41 @@ package dev.gearturner.sparklauncher.core.model
  * and empty home pages between other pages are removed.
  */
 fun normalizeLayout(items: List<WorkspaceItem>): List<WorkspaceItem> {
-    val byId = items.associateBy { it.id }.toMutableMap()
+    // unsaved items all share id 0, so they get distinct negative keys here or all but one would be lost
+    var nextUnsaved = -1L
+    val byId = LinkedHashMap<Long, WorkspaceItem>()
+    items.forEach { item -> byId[if (item.id == 0L) nextUnsaved-- else item.id] = item }
 
-    val folders = items.filter { it.type == ItemType.FOLDER }
+    val folders = items.filter { it.type == ItemType.FOLDER && it.id != 0L }
     for (folder in folders) {
-        val children = byId.values
-            .filter { it.container == Container.Folder(folder.id) }
-            .sortedWith(compareBy({ it.placement.cellX }, { it.id }))
+        val children = byId.entries
+            .filter { it.value.container == Container.Folder(folder.id) }
+            .sortedWith(compareBy({ it.value.placement.cellX }, { it.key }))
         when (children.size) {
             0 -> byId.remove(folder.id)
             1 -> {
                 // the last app takes over the folder's spot so the home screen does not shift
                 byId.remove(folder.id)
-                val only = children.single()
-                byId[only.id] = only.copy(container = folder.container, placement = folder.placement)
+                val (key, only) = children.single()
+                byId[key] = only.copy(container = folder.container, placement = folder.placement)
             }
-            else -> children.forEachIndexed { rank, child ->
+            else -> children.forEachIndexed { rank, (key, child) ->
                 if (child.placement.cellX != rank || child.placement.page != 0 || child.placement.cellY != 0) {
-                    byId[child.id] = child.copy(placement = CellPlacement(0, rank, 0))
+                    byId[key] = child.copy(placement = CellPlacement(0, rank, 0))
                 }
             }
         }
     }
     // children of a folder that no longer exists would be invisible forever, so they are dropped
     val liveFolderIds = byId.values.filter { it.type == ItemType.FOLDER }.map { it.id }.toSet()
-    byId.values.filter { val c = it.container; c is Container.Folder && c.folderId !in liveFolderIds }
-        .forEach { byId.remove(it.id) }
+    byId.entries.removeAll { val c = it.value.container; c is Container.Folder && c.folderId !in liveFolderIds }
 
     val usedPages = byId.values.filter { it.container == Container.Desktop }.map { it.placement.page }.distinct().sorted()
     val pageMap = usedPages.withIndex().associate { (index, page) -> page to index }
-    for (item in byId.values.toList()) {
+    for ((key, item) in byId.entries.toList()) {
         if (item.container != Container.Desktop) continue
         val newPage = pageMap.getValue(item.placement.page)
-        if (newPage != item.placement.page) byId[item.id] = item.copy(placement = item.placement.copy(page = newPage))
+        if (newPage != item.placement.page) byId[key] = item.copy(placement = item.placement.copy(page = newPage))
     }
     return byId.values.toList()
 }

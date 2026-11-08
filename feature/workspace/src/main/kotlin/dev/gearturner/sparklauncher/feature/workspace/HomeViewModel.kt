@@ -22,6 +22,7 @@ import dev.gearturner.sparklauncher.core.model.Container
 import dev.gearturner.sparklauncher.core.model.DropPlan
 import dev.gearturner.sparklauncher.core.model.DropTarget
 import dev.gearturner.sparklauncher.core.model.Dragged
+import dev.gearturner.sparklauncher.core.model.HomeMode
 import dev.gearturner.sparklauncher.core.model.IconSource
 import dev.gearturner.sparklauncher.core.model.ItemType
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
@@ -182,8 +183,19 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch { workspace.rename(itemId, title) }
     }
 
+    /**
+     * in home only mode every app lives on home, so removing an app hides it instead; otherwise it
+     * would be put straight back. hidden apps still answer search and can be shown again there.
+     */
     fun remove(itemId: Long) {
-        viewModelScope.launch { shortcutPlacement.removeFromHome(itemId) }
+        viewModelScope.launch {
+            val item = latestItems.firstOrNull { it.id == itemId }
+            val app = item?.app
+            if (settingsRepository.current().homeMode == HomeMode.HOME_ONLY && item?.type == ItemType.APP && app != null) {
+                overrides.setHidden(app, true)
+            }
+            shortcutPlacement.removeFromHome(itemId)
+        }
     }
 
     fun canUninstall(key: AppKey): Boolean = apps.canUninstall(key)

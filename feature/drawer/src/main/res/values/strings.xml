@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="drawer_search_hint">Search apps</string>
+    <string name="drawer_search_only_hint">Every app is on your home screen. Type to find one, including hidden apps.</string>
     <string name="drawer_clear_search">Clear search</string>
     <string name="drawer_add_to_home">Add to home screen</string>
     <string name="drawer_app_info">App info</string>

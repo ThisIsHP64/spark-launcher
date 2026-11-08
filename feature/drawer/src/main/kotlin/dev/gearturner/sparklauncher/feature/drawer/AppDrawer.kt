@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -76,6 +76,9 @@ import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.Widgets
 import dev.gearturner.sparklauncher.core.ui.LocalDrawer
 import dev.gearturner.sparklauncher.core.ui.LocalWidgetPicker
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import dev.gearturner.sparklauncher.core.model.HomeMode
 import dev.gearturner.sparklauncher.core.model.IconSource
 import androidx.compose.ui.geometry.Rect
 import dev.gearturner.sparklauncher.core.ui.AppIcon
@@ -99,6 +102,9 @@ private val SearchBarHeight = 56.dp
 
 /** one inset for the top and sides so the search bar sits evenly inside the sheet */
 private val SearchBarInset = 16.dp
+private val DrawerCellPadding = 8.dp
+private val TopHitInset = 4.dp
+private val TopHitCorner = 24.dp
 
 // concentric with the pill shaped search bar, so the band around it reads as uniform at the corners too
 private val DrawerCornerRadius = SearchBarHeight / 2 + SearchBarInset
@@ -126,6 +132,10 @@ fun AppDrawer(
     LaunchedEffect(searchState) {
         snapshotFlow { searchState.text.toString() }.collect(viewModel::onQueryChange)
     }
+    // the highlighted top hit is what the go key opens, so it has to stay in view as the query changes
+    LaunchedEffect(state.query) {
+        if (state.query.isNotBlank()) gridState.scrollToItem(0)
+    }
     // a fully closed drawer resets so the next open starts at the top with an empty search
     LaunchedEffect(drawer, dragController) {
         snapshotFlow { drawer.value == 0f && dragController?.session == null }.collect { closed ->
@@ -151,6 +161,14 @@ fun AppDrawer(
             }
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // in home only mode every app is already on home, so swiping up is just a search
+    val searchOnly = state.settings.homeMode == HomeMode.HOME_ONLY
+    val searchFocus = remember { FocusRequester() }
+    LaunchedEffect(drawer, searchOnly) {
+        if (!searchOnly) return@LaunchedEffect
+        snapshotFlow { drawer.value == 1f }.collect { open -> if (open) searchFocus.requestFocus() }
     }
 
     if (!drawer.isVisible && !draggingFromDrawer) return
@@ -186,8 +204,19 @@ fun AppDrawer(
                         orientation = Orientation.Vertical,
                         onDragStopped = { velocity -> drawer.settle(-velocity) },
                     )
-                    .padding(SearchBarInset),
+                    .padding(SearchBarInset)
+                    .focusRequester(searchFocus),
             )
+            if (searchOnly && state.query.isBlank()) {
+                Text(
+                    text = stringResource(R.string.drawer_search_only_hint),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                )
+            }
             if (state.entries.isEmpty() && state.query.isNotBlank()) {
                 Text(
                     text = stringResource(R.string.drawer_no_results, state.query),
@@ -208,10 +237,13 @@ fun AppDrawer(
                 ),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                items(state.entries, key = { it.app.key.toString() }) { entry ->
+                val shown = if (searchOnly && state.query.isBlank()) emptyList() else state.entries
+                itemsIndexed(shown, key = { _, entry -> entry.app.key.toString() }) { index, entry ->
                     DrawerItem(
                         entry = entry,
+                        topHit = index == 0 && state.query.isNotBlank(),
                         iconScale = state.settings.iconScale,
+                        showLabels = state.settings.showDrawerLabels,
                         viewModel = viewModel,
                         drawer = drawer,
                     )
@@ -280,7 +312,9 @@ private fun SearchField(
 @Composable
 private fun DrawerItem(
     entry: DrawerEntry,
+    topHit: Boolean,
     iconScale: Float,
+    showLabels: Boolean,
     viewModel: DrawerViewModel,
     drawer: DrawerController,
 ) {
@@ -297,9 +331,19 @@ private fun DrawerItem(
             drawerDragHandler(controller, drawer, anchor, DragPayload.NewApp(app.key, canUninstall)) { menuOpen = false }
         }
     }
+    // the top hit sits on a tinted plate so it is obvious which app the keyboard's go key opens;
+    // the paddings add up to the same height as a plain cell so the grid does not jump
+    val plate = if (topHit) {
+        Modifier
+            .padding(TopHitInset)
+            .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(TopHitCorner))
+            .padding(vertical = DrawerCellPadding - TopHitInset)
+    } else {
+        Modifier.padding(vertical = DrawerCellPadding)
+    }
     Box(
         modifier = Modifier
-            .padding(vertical = 8.dp)
+            .then(plate)
             // hidden apps only show up in search; dimming them makes it clear why they are there
             .graphicsLayer { alpha = if (entry.hidden) HIDDEN_ALPHA else 1f },
         contentAlignment = Alignment.Center,
@@ -308,7 +352,7 @@ private fun DrawerItem(
             source = IconSource.App(app.key),
             label = app.label,
             iconSize = BaseIconSize * iconScale,
-            labelStyle = LabelStyle.OnSurface,
+            labelStyle = if (showLabels || topHit) LabelStyle.OnSurface else LabelStyle.Hidden,
             anchor = anchor,
             onClick = { viewModel.launch(app, anchor.request()) },
             onLongClick = { menuOpen = true },

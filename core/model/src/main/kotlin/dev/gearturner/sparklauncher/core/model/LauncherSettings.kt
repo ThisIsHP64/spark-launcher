@@ -48,6 +48,9 @@ data class LauncherSettings(
     val drawerColumns: Int = 4,
     val iconScale: Float = 1f,
     val showHomeLabels: Boolean = true,
+    val showDrawerLabels: Boolean = true,
+    /** long names wrap onto a second line instead of being cut off */
+    val labelLines: Int = 1,
     val iconShape: IconShape = IconShape.CIRCLE,
     /** used by [IconShape.ROUNDED]; 50 is a circle and 0 a square, matching how the slider reads */
     val iconCornerRadiusPercent: Int = 30,
@@ -73,6 +76,7 @@ data class LauncherSettings(
         drawerColumns = drawerColumns.coerceIn(GridLimits.DRAWER_COLUMNS),
         iconScale = iconScale.coerceIn(GridLimits.ICON_SCALE_MIN, GridLimits.ICON_SCALE_MAX),
         iconCornerRadiusPercent = iconCornerRadiusPercent.coerceIn(0, 50),
+        labelLines = labelLines.coerceIn(1, 2),
         // an imported file could carry a transparent seed, which would generate a broken palette
         seedColor = seedColor or OPAQUE,
         iconPack = iconPack?.takeIf { it.isNotBlank() && it.length <= MAX_PACKAGE_LENGTH },

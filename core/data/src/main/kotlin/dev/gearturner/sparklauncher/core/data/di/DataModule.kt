@@ -6,17 +6,27 @@ import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.dataStoreFile
 import androidx.room.Room
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dev.gearturner.sparklauncher.core.data.ActiveLayout
+import dev.gearturner.sparklauncher.core.data.SettingsActiveLayout
 import dev.gearturner.sparklauncher.core.data.db.AppOverrideDao
 import dev.gearturner.sparklauncher.core.data.db.SparkDatabase
 import dev.gearturner.sparklauncher.core.data.db.WorkspaceDao
 import dev.gearturner.sparklauncher.core.data.settings.SettingsSerializer
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
 import javax.inject.Singleton
+
+@Module
+@InstallIn(SingletonComponent::class)
+interface DataBindings {
+    @Binds
+    fun bindActiveLayout(impl: SettingsActiveLayout): ActiveLayout
+}
 
 @Module
 @InstallIn(SingletonComponent::class)

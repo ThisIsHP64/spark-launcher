@@ -20,6 +20,7 @@ import dev.gearturner.sparklauncher.core.theme.SparkTheme
 import dev.gearturner.sparklauncher.core.ui.HomeIconRegistry
 import dev.gearturner.sparklauncher.core.ui.LocalHomeIconRegistry
 import dev.gearturner.sparklauncher.core.ui.LocalIconRepository
+import dev.gearturner.sparklauncher.core.ui.LocalLabelLines
 import dev.gearturner.sparklauncher.core.ui.ProvideIconStyle
 import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetBinder
 import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetViews
@@ -90,6 +91,7 @@ class LauncherActivity : ComponentActivity() {
                     LocalHomeIconRegistry provides iconRegistry,
                     LocalWidgetBinder provides widgetBinder,
                     LocalWidgetViews provides widgetViews,
+                    LocalLabelLines provides loaded.labelLines,
                 ) {
                     ProvideIconStyle(loaded) {
                         LauncherRoot(homePresses = homePressEvents, onOpenSettings = ::openSettings)

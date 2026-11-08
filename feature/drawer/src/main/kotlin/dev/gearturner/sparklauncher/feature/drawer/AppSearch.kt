@@ -19,24 +19,27 @@ internal fun normalizeForSearch(text: String): String =
         .trim()
 
 /**
- * filters a pre-sorted list, ranking label prefixes, then word prefixes, then any substring.
+ * filters a pre-sorted list, ranking exact names, then label prefixes, then word prefixes, then any
+ * substring. the first result is what the keyboard's go key opens, so an exact name must win.
  * matching the package name too lets people find apps whose label differs from the brand.
  */
 internal fun filterApps(sorted: List<AppInfo>, query: String): List<AppInfo> {
     val needle = normalizeForSearch(query)
     if (needle.isEmpty()) return sorted
+    val exact = ArrayList<AppInfo>()
     val starts = ArrayList<AppInfo>()
     val wordStarts = ArrayList<AppInfo>()
     val contains = ArrayList<AppInfo>()
     for (app in sorted) {
         val label = normalizeForSearch(app.label)
         when {
+            label == needle -> exact += app
             label.startsWith(needle) -> starts += app
             label.split(WORD_BREAK).any { it.startsWith(needle) } -> wordStarts += app
             needle in label || needle in app.key.packageName.lowercase(Locale.ROOT) -> contains += app
         }
     }
-    return starts + wordStarts + contains
+    return exact + starts + wordStarts + contains
 }
 
 private val DIACRITICS = Regex("\\p{Mn}+")

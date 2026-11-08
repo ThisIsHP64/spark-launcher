@@ -82,6 +82,22 @@ class MigrationTest {
         }
     }
 
+    @Test
+    fun existingRowsBecomeTheDrawerLayoutInVersion5() {
+        helper.createDatabase(DB_NAME, 4).apply {
+            execSQL(
+                "INSERT INTO workspace_items (id, type, container, page, cell_x, cell_y, span_x, span_y, " +
+                    "package_name, class_name, user_serial) VALUES (4, 'APP', 'desktop', 0, 1, 1, 1, 1, 'com.a', 'com.a.Main', 0)",
+            )
+            close()
+        }
+        val migrated = helper.runMigrationsAndValidate(DB_NAME, 5, true)
+        migrated.query("SELECT layout FROM workspace_items WHERE id = 4").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("drawer", cursor.getString(0))
+        }
+    }
+
     private companion object {
         const val DB_NAME = "migration-test"
     }

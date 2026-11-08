@@ -8,7 +8,11 @@ import androidx.room.PrimaryKey
 /** flat row shape so every item type shares one table, mirroring how aosp stores its favorites */
 @Entity(
     tableName = "workspace_items",
-    indices = [Index(value = ["container", "folder_id"]), Index(value = ["package_name", "user_serial"])],
+    indices = [
+        Index(value = ["container", "folder_id"]),
+        Index(value = ["package_name", "user_serial"]),
+        Index(value = ["layout"]),
+    ],
 )
 data class WorkspaceItemEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -27,6 +31,8 @@ data class WorkspaceItemEntity(
     @ColumnInfo(name = "shortcut_id") val shortcutId: String? = null,
     @ColumnInfo(name = "app_widget_id") val appWidgetId: Int? = null,
     @ColumnInfo(name = "widget_options") val widgetOptions: String? = null,
+    /** which mode's home screen the row belongs to; rows from before modes existed are drawer mode */
+    @ColumnInfo(name = "layout", defaultValue = "drawer") val layout: String = "drawer",
 )
 
 internal object ContainerNames {
