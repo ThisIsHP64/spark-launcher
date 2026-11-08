@@ -11,11 +11,16 @@ import dev.gearturner.sparklauncher.core.model.DropPlan
 import dev.gearturner.sparklauncher.core.model.DropTarget
 import dev.gearturner.sparklauncher.core.model.Dragged
 import dev.gearturner.sparklauncher.core.model.ItemType
+import dev.gearturner.sparklauncher.core.model.Span
+import dev.gearturner.sparklauncher.core.model.WidgetOptions
 import dev.gearturner.sparklauncher.core.model.ShortcutKey
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -150,5 +155,28 @@ class WorkspaceRepositoryTest {
         val left = repository.items.first().single()
         assertEquals(app("b"), left.app)
         assertEquals(Container.Desktop, left.container)
+    }
+
+    @Test
+    fun widgetsArePlacedResizedAndReleaseTheirIdWhenRemoved() = runTest {
+        val provider = AppKey("com.example.clock", "com.example.clock.Widget", 0)
+        val plan = repository.drop(Dragged.NewWidget(provider, 77, Span(2, 2)), DropTarget.Desktop(0, 0, 0), 4, 5, 4)
+        assertTrue(plan is DropPlan.Place)
+        val widget = repository.items.first().single()
+        assertEquals(77, widget.appWidgetId)
+        assertEquals(CellPlacement(0, 0, 0, 2, 2), widget.placement)
+
+        assertTrue(repository.resize(widget.id, CellPlacement(0, 0, 0, 4, 2), 4, 5))
+        assertFalse(repository.resize(widget.id, CellPlacement(0, 0, 0, 5, 2), 4, 5))
+
+        repository.updateWidgetOptions(widget.id, WidgetOptions(padding = false, opacityPercent = 1))
+        val stored = repository.items.first().single().widgetOptions
+        assertFalse(stored.padding)
+        assertEquals(WidgetOptions.MIN_OPACITY_PERCENT, stored.opacityPercent)
+
+        val released = async { repository.releasedWidgetIds.first() }
+        yield()
+        repository.remove(widget.id)
+        assertEquals(listOf(77), released.await())
     }
 }

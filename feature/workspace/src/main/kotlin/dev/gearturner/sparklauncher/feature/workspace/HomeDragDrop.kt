@@ -34,9 +34,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import dev.gearturner.sparklauncher.core.model.CellPlacement
 import dev.gearturner.sparklauncher.core.model.DropTarget
 import dev.gearturner.sparklauncher.core.ui.DragPayload
 import dev.gearturner.sparklauncher.core.ui.DragSession
+import dev.gearturner.sparklauncher.core.ui.spanX
+import dev.gearturner.sparklauncher.core.ui.spanY
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -64,9 +67,31 @@ internal class HomeGeometry {
     var removeBounds: Rect? = null
     var uninstallBounds: Rect? = null
 
-    fun resolve(finger: Offset, page: Int, payload: DragPayload): DropZone {
+    fun cellWidthPx(): Float = pagerBounds?.let { (it.width - 2 * gridPaddingPx) / columns } ?: 0f
+
+    fun cellHeightPx(): Float = pagerBounds?.let { it.height / rows } ?: 0f
+
+    /** the on screen rectangle of a placement on the visible page */
+    fun rectOf(placement: CellPlacement): Rect? {
+        val pager = pagerBounds ?: return null
+        val left = pager.left + gridPaddingPx + placement.cellX * cellWidthPx()
+        val top = pager.top + placement.cellY * cellHeightPx()
+        return Rect(left, top, left + placement.spanX * cellWidthPx(), top + placement.spanY * cellHeightPx())
+    }
+
+    fun resolve(session: DragSession, page: Int): DropZone =
+        resolve(session.fingerInRoot, session.fingerInRoot - session.grabOffset, page, session.payload)
+
+    /**
+     * single icons land under the finger; larger items land where their top left cell sits, so a
+     * widget drops exactly where its lifted copy is drawn.
+     */
+    fun resolve(finger: Offset, itemTopLeft: Offset, page: Int, payload: DragPayload): DropZone {
         if (removeBounds?.contains(finger) == true && payload is DragPayload.Existing) return DropZone.Remove
         if (uninstallBounds?.contains(finger) == true && payload.canUninstall()) return DropZone.Uninstall
+        val spanX = payload.spanX
+        val spanY = payload.spanY
+        if (spanX > 1 || spanY > 1) return resolveBlock(itemTopLeft, page, spanX, spanY)
         dockBounds?.takeIf { it.contains(finger) && dockSlots > 0 }?.let { dock ->
             val slotWidth = dock.width / dockSlots
             val slot = floor((finger.x - dock.left) / slotWidth).toInt().coerceIn(0, dockSlots - 1)
@@ -89,6 +114,19 @@ internal class HomeGeometry {
         return DropZone.Cell(DropTarget.Desktop(page, x, y), rect)
     }
 
+    private fun resolveBlock(topLeft: Offset, page: Int, spanX: Int, spanY: Int): DropZone {
+        val pager = pagerBounds ?: return DropZone.None
+        val cellWidth = cellWidthPx()
+        val cellHeight = cellHeightPx()
+        if (cellWidth <= 0f || cellHeight <= 0f) return DropZone.None
+        // rounding to the nearest cell edge feels like snapping instead of jumping a cell early
+        val x = ((topLeft.x - pager.left - gridPaddingPx) / cellWidth).roundToInt().coerceIn(0, (columns - spanX).coerceAtLeast(0))
+        val y = ((topLeft.y - pager.top) / cellHeight).roundToInt().coerceIn(0, (rows - spanY).coerceAtLeast(0))
+        if (spanX > columns || spanY > rows) return DropZone.None
+        val rect = rectOf(CellPlacement(page, x, y, spanX, spanY)) ?: return DropZone.None
+        return DropZone.Cell(DropTarget.Desktop(page, x, y), rect)
+    }
+
     /** -1 near the left edge, 1 near the right, 0 elsewhere; used to flip pages mid drag */
     fun edgeDirection(finger: Offset, edgePx: Float): Int {
         val pager = pagerBounds ?: return 0
@@ -104,6 +142,7 @@ internal class HomeGeometry {
 internal fun DragPayload.canUninstall(): Boolean = when (this) {
     is DragPayload.Existing -> canUninstall
     is DragPayload.NewApp -> canUninstall
+    is DragPayload.NewWidget -> false
 }
 
 /** the remove and uninstall targets along the top while something is being dragged */

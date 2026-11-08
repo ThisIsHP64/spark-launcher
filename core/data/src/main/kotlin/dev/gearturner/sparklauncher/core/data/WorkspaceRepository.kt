@@ -11,7 +11,9 @@ import dev.gearturner.sparklauncher.core.model.Container
 import dev.gearturner.sparklauncher.core.model.DropPlan
 import dev.gearturner.sparklauncher.core.model.DropTarget
 import dev.gearturner.sparklauncher.core.model.Dragged
+import dev.gearturner.sparklauncher.core.model.WidgetOptions
 import dev.gearturner.sparklauncher.core.model.applyDrop
+import dev.gearturner.sparklauncher.core.model.canResize
 import dev.gearturner.sparklauncher.core.model.diffLayout
 import dev.gearturner.sparklauncher.core.model.normalizeLayout
 import dev.gearturner.sparklauncher.core.model.planDrop
@@ -22,6 +24,9 @@ import dev.gearturner.sparklauncher.core.model.findFirstFreePlacement
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -37,6 +42,11 @@ class WorkspaceRepository @Inject constructor(
     private val database: SparkDatabase,
 ) {
     private val dao: WorkspaceDao = database.workspaceDao()
+
+    private val releasedWidgets = MutableSharedFlow<List<Int>>(extraBufferCapacity = 16)
+
+    /** system widget ids whose home items were deleted; the widget host frees them so none leak */
+    val releasedWidgetIds: SharedFlow<List<Int>> = releasedWidgets.asSharedFlow()
 
     // serializes read-then-write placement so two quick adds cannot claim the same cell
     private val placementLock = Mutex()
@@ -101,7 +111,7 @@ class WorkspaceRepository @Inject constructor(
                     is Dragged.Existing -> Dragged.Existing(
                         before.firstOrNull { it.id == dragged.item.id } ?: return@withTransaction DropPlan.Reject,
                     )
-                    is Dragged.NewApp -> dragged
+                    is Dragged.NewApp, is Dragged.NewWidget -> dragged
                 }
                 val plan = planDrop(before, current, target, columns, rows, dockSlots)
                 if (plan == DropPlan.NoChange || plan == DropPlan.Reject) return@withTransaction plan
@@ -117,6 +127,40 @@ class WorkspaceRepository @Inject constructor(
             }
         }
 
+    /** answers whether a drop would be accepted, without writing, so a widget is only bound when it fits */
+    suspend fun previewDrop(dragged: Dragged, target: DropTarget, columns: Int, rows: Int, dockSlots: Int): DropPlan =
+        placementLock.withLock { planDrop(loadAll(), dragged, target, columns, rows, dockSlots) }
+
+    /** returns false when the new size would leave the grid or cover another item */
+    suspend fun resize(itemId: Long, placement: CellPlacement, columns: Int, rows: Int): Boolean = placementLock.withLock {
+        database.withTransaction {
+            val before = loadAll()
+            if (!canResize(before, itemId, placement, columns, rows)) return@withTransaction false
+            val after = before.map { if (it.id == itemId) it.copy(placement = placement) else it }
+            writeDiff(before, after)
+            true
+        }
+    }
+
+    suspend fun updateWidgetOptions(itemId: Long, options: WidgetOptions) = placementLock.withLock {
+        database.withTransaction {
+            val before = loadAll()
+            val after = before.map { if (it.id == itemId) it.copy(widgetOptions = options.sanitized()) else it }
+            writeDiff(before, after)
+        }
+    }
+
+    /** the first spot a block of cells fits on any page, adding a page when all are full */
+    suspend fun firstFreeDesktopSpot(spanX: Int, spanY: Int, columns: Int, rows: Int): CellPlacement? =
+        placementLock.withLock {
+            // overlap widgets float above the grid, so they never block a spot
+            val taken = loadAll().filter { it.container == Container.Desktop && !it.overlaps }.map { it.placement }
+            findFirstFreePlacement(columns, rows, taken, spanX, spanY)
+        }
+
+    /** every widget id the layout still uses, for freeing ids orphaned by a crash mid placement */
+    suspend fun widgetIds(): Set<Int> = loadAll().mapNotNull { it.appWidgetId }.toSet()
+
     private suspend fun loadAll(): List<WorkspaceItem> = dao.getAll().mapNotNull { it.toModelOrNull() }
 
     /** returns the deleted items */
@@ -126,7 +170,9 @@ class WorkspaceRepository @Inject constructor(
         diff.updates.forEach { dao.update(it.toEntity()) }
         diff.deletes.forEach { dao.delete(it) }
         val deleted = diff.deletes.toSet()
-        return before.filter { it.id in deleted }
+        val removed = before.filter { it.id in deleted }
+        removed.mapNotNull { it.appWidgetId }.takeIf { it.isNotEmpty() }?.let { releasedWidgets.tryEmit(it) }
+        return removed
     }
 
     /** a blank title clears the rename so the app's name shows again */

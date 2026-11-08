@@ -13,6 +13,12 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Widgets
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +44,7 @@ import dev.gearturner.sparklauncher.core.ui.LabelStyle
 import dev.gearturner.sparklauncher.core.ui.LaunchAnchor
 import dev.gearturner.sparklauncher.core.ui.LauncherTile
 import dev.gearturner.sparklauncher.core.ui.LocalDragController
+import dev.gearturner.sparklauncher.core.ui.LocalWidgetPicker
 import dev.gearturner.sparklauncher.core.ui.MenuAction
 import dev.gearturner.sparklauncher.core.ui.RegisterHomeIcon
 import dev.gearturner.sparklauncher.core.ui.RenameDialog
@@ -57,11 +64,23 @@ internal fun PageGrid(
     showLabels: Boolean,
     viewModel: HomeViewModel,
     onOpenFolder: (Long) -> Unit,
+    onResizeWidget: (WidgetTile) -> Unit,
+    onEmptyLongPress: (Offset) -> Unit,
 ) {
+    val haptics = LocalHapticFeedback.current
+    var gridCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = GridPadding),
+            .padding(horizontal = GridPadding)
+            .onGloballyPositioned { gridCoordinates = it }
+            // tiles sit above this layer, so only presses on empty space reach it
+            .pointerInput(Unit) {
+                detectTapGestures(onLongPress = { local ->
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    gridCoordinates?.takeIf { it.isAttached }?.let { onEmptyLongPress(it.localToRoot(local)) }
+                })
+            },
     ) {
         val cellWidth = maxWidth / columns
         val cellHeight = maxHeight / rows
@@ -74,6 +93,7 @@ internal fun PageGrid(
                 labelStyle = if (showLabels) LabelStyle.OnWallpaper else LabelStyle.Hidden,
                 viewModel = viewModel,
                 onOpenFolder = onOpenFolder,
+                onResizeWidget = onResizeWidget,
                 modifier = Modifier
                     .offset(x = cellWidth * tile.placement.cellX, y = cellHeight * tile.placement.cellY)
                     .size(cellWidth * tile.placement.spanX, cellHeight * tile.placement.spanY),
@@ -110,6 +130,7 @@ internal fun Dock(
                 labelStyle = LabelStyle.Hidden,
                 viewModel = viewModel,
                 onOpenFolder = onOpenFolder,
+                onResizeWidget = {},
                 modifier = Modifier
                     .offset(x = slotWidth * tile.placement.cellX)
                     .size(slotWidth, maxHeight),
@@ -127,11 +148,13 @@ private fun HomeTileView(
     labelStyle: LabelStyle,
     viewModel: HomeViewModel,
     onOpenFolder: (Long) -> Unit,
+    onResizeWidget: (WidgetTile) -> Unit,
     modifier: Modifier,
 ) {
     when (tile) {
         is HomeCell -> HomeItem(tile, registryPage, iconSize, cornerRadiusPercent, labelStyle, DragOrigin.Home, viewModel, modifier)
         is FolderTile -> FolderTileView(tile, iconSize, cornerRadiusPercent, labelStyle, viewModel, onOpenFolder, modifier)
+        is WidgetTile -> WidgetTileView(tile, viewModel, onResizeWidget, modifier)
     }
 }
 
@@ -276,7 +299,7 @@ internal fun itemDragHandler(
                 payload = payload,
                 origin = origin,
                 icon = anchor.icon,
-                iconSizePx = iconBoundsInRoot.width,
+                sizePx = iconBoundsInRoot.size,
                 grabOffset = fingerInRoot - iconBoundsInRoot.topLeft,
                 fingerInRoot = fingerInRoot,
             ),
@@ -304,8 +327,13 @@ private fun homeItemActions(
     val rename = stringResource(R.string.workspace_rename)
     val remove = stringResource(R.string.workspace_remove)
     val uninstall = stringResource(R.string.workspace_uninstall)
+    val widgets = stringResource(R.string.workspace_widgets)
+    val picker = LocalWidgetPicker.current
     return buildList {
         add(MenuAction(appInfo, Icons.Outlined.Info) { viewModel.openAppInfo(cell, anchor.request()) })
+        if (picker != null && cell.shortcut == null && viewModel.hasWidgets(cell.app.key.packageName)) {
+            add(MenuAction(widgets, Icons.Outlined.Widgets) { picker.open(cell.app.key.packageName) })
+        }
         add(MenuAction(rename, Icons.Outlined.Edit, onRename))
         add(MenuAction(remove, Icons.Outlined.Close) { viewModel.remove(cell.itemId) })
         if (viewModel.canUninstall(cell)) {

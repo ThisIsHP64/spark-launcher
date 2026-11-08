@@ -23,6 +23,12 @@ import dev.gearturner.sparklauncher.core.ui.DragController
 import dev.gearturner.sparklauncher.core.ui.DragLayer
 import dev.gearturner.sparklauncher.core.ui.DrawerController
 import dev.gearturner.sparklauncher.core.ui.LocalDragController
+import dev.gearturner.sparklauncher.core.ui.LocalDrawer
+import dev.gearturner.sparklauncher.core.ui.LocalWidgetPicker
+import dev.gearturner.sparklauncher.core.ui.WidgetPickerController
+import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetBinder
+import dev.gearturner.sparklauncher.feature.widgets.WidgetPicker
+import dev.gearturner.sparklauncher.feature.widgets.WidgetPickerViewModel
 import dev.gearturner.sparklauncher.core.ui.rememberDrawerController
 import dev.gearturner.sparklauncher.feature.drawer.AppDrawer
 import dev.gearturner.sparklauncher.feature.drawer.DrawerViewModel
@@ -35,6 +41,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 fun LauncherRoot(homePresses: Flow<Unit>) {
     val drawer = rememberDrawerController()
     val dragController = remember { DragController() }
+    val widgetPicker = remember { WidgetPickerController() }
+    val widgetPickerViewModel: WidgetPickerViewModel = hiltViewModel()
+    val binder = LocalWidgetBinder.current
     val homeViewModel: HomeViewModel = hiltViewModel()
     val drawerViewModel: DrawerViewModel = hiltViewModel()
 
@@ -45,10 +54,15 @@ fun LauncherRoot(homePresses: Flow<Unit>) {
         drawer.snapClosed()
         // a drag cannot survive the launcher being hidden, for example by an incoming call
         dragController.cancel()
+        widgetPicker.close()
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { homeViewModel.onResume() }
 
-    CompositionLocalProvider(LocalDragController provides dragController) {
+    CompositionLocalProvider(
+        LocalDragController provides dragController,
+        LocalWidgetPicker provides widgetPicker,
+        LocalDrawer provides drawer,
+    ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             drawer.travelPx = with(LocalDensity.current) { maxHeight.toPx() }
             // a light scrim follows the drawer so the wallpaper dims as it slides in
@@ -64,6 +78,14 @@ fun LauncherRoot(homePresses: Flow<Unit>) {
                 modifier = Modifier.blurBehindDrawer(drawer),
             )
             AppDrawer(viewModel = drawerViewModel, drawer = drawer)
+            WidgetPicker(
+                viewModel = widgetPickerViewModel,
+                controller = widgetPicker,
+                onAdd = { provider, span ->
+                    widgetPicker.close()
+                    homeViewModel.addWidget(provider.key, span, binder)
+                },
+            )
             DragLayer(dragController)
         }
     }

@@ -25,6 +25,8 @@ data class WorkspaceItemEntity(
     @ColumnInfo(name = "user_serial") val userSerial: Long? = null,
     @ColumnInfo(name = "custom_title") val customTitle: String? = null,
     @ColumnInfo(name = "shortcut_id") val shortcutId: String? = null,
+    @ColumnInfo(name = "app_widget_id") val appWidgetId: Int? = null,
+    @ColumnInfo(name = "widget_options") val widgetOptions: String? = null,
 )
 
 internal object ContainerNames {

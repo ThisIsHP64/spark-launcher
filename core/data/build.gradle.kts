@@ -31,3 +31,8 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
     arg("room.generateKotlin", "true")
 }
+
+// the schema for a new database version is written by ksp, so it must exist before test assets merge
+tasks.matching { it.name.endsWith("UnitTestAssets") && it.name.startsWith("merge") }.configureEach {
+    dependsOn(tasks.matching { it.name == "kspDebugKotlin" || it.name == "kspReleaseKotlin" })
+}

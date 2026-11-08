@@ -10,6 +10,9 @@ sealed interface DropTarget {
 sealed interface Dragged {
     data class Existing(val item: WorkspaceItem) : Dragged
     data class NewApp(val key: AppKey) : Dragged
+
+    /** a widget already bound to [appWidgetId], waiting for a home spot */
+    data class NewWidget(val provider: AppKey, val appWidgetId: Int, val span: Span) : Dragged
 }
 
 sealed interface DropPlan {
@@ -42,8 +45,9 @@ fun planDrop(
     dockSlots: Int,
 ): DropPlan {
     val draggedItem = (dragged as? Dragged.Existing)?.item
-    val spanX = draggedItem?.placement?.spanX ?: 1
-    val spanY = draggedItem?.placement?.spanY ?: 1
+    val newWidget = dragged as? Dragged.NewWidget
+    val spanX = draggedItem?.placement?.spanX ?: newWidget?.span?.x ?: 1
+    val spanY = draggedItem?.placement?.spanY ?: newWidget?.span?.y ?: 1
     val (container, placement) = when (target) {
         is DropTarget.Desktop -> {
             if (target.cellX < 0 || target.cellY < 0 || target.cellX + spanX > columns || target.cellY + spanY > rows) {
@@ -59,7 +63,12 @@ fun planDrop(
     }
 
     val others = items.filter { it.id != draggedItem?.id }
-    val occupants = others.filter { it.container == container && it.overlaps(placement) }
+    // an overlap widget ignores everything under it, and nothing is blocked by one
+    val occupants = if (draggedItem?.overlaps == true) {
+        emptyList()
+    } else {
+        others.filter { it.container == container && !it.overlaps && it.covers(placement) }
+    }
     if (occupants.isEmpty()) {
         if (draggedItem != null && draggedItem.container == container && draggedItem.placement == placement) {
             return DropPlan.NoChange
@@ -69,7 +78,11 @@ fun planDrop(
 
     val occupant = occupants.singleOrNull() ?: return DropPlan.Reject
     // only a single icon can merge into a folder; folders and widgets do not nest
-    val draggedIsIcon = draggedItem == null || draggedItem.type == ItemType.APP || draggedItem.type == ItemType.SHORTCUT
+    val draggedIsIcon = when (dragged) {
+        is Dragged.Existing -> dragged.item.type == ItemType.APP || dragged.item.type == ItemType.SHORTCUT
+        is Dragged.NewApp -> true
+        is Dragged.NewWidget -> false
+    }
     if (!draggedIsIcon || spanX != 1 || spanY != 1) return DropPlan.Reject
     return when (occupant.type) {
         ItemType.FOLDER -> {
@@ -80,11 +93,9 @@ fun planDrop(
     }
 }
 
-private fun WorkspaceItem.overlaps(other: CellPlacement): Boolean {
-    val p = placement
-    if (container == Container.Desktop && p.page != other.page) return false
-    return p.cellX < other.cellX + other.spanX && other.cellX < p.cellX + p.spanX &&
-        p.cellY < other.cellY + other.spanY && other.cellY < p.cellY + p.spanY
+private fun WorkspaceItem.covers(other: CellPlacement): Boolean {
+    if (container == Container.Desktop && placement.page != other.page) return false
+    return placement.intersects(other)
 }
 
 /**
@@ -101,6 +112,14 @@ fun applyDrop(
     fun draggedAs(container: Container, placement: CellPlacement): WorkspaceItem = when (dragged) {
         is Dragged.Existing -> dragged.item.copy(container = container, placement = placement)
         is Dragged.NewApp -> WorkspaceItem(0, ItemType.APP, container, placement, dragged.key)
+        is Dragged.NewWidget -> WorkspaceItem(
+            id = 0,
+            type = ItemType.WIDGET,
+            container = container,
+            placement = placement,
+            app = dragged.provider,
+            appWidgetId = dragged.appWidgetId,
+        )
     }
     val draggedId = (dragged as? Dragged.Existing)?.item?.id
     val rest = items.filter { it.id != draggedId }

@@ -26,7 +26,13 @@ import dev.gearturner.sparklauncher.core.model.IconSource
 import dev.gearturner.sparklauncher.core.model.ItemType
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
 import dev.gearturner.sparklauncher.core.model.ShortcutKey
+import dev.gearturner.sparklauncher.core.model.Span
+import dev.gearturner.sparklauncher.core.model.WidgetOptions
 import dev.gearturner.sparklauncher.core.model.WorkspaceItem
+import dev.gearturner.sparklauncher.feature.widgets.WidgetBinder
+import dev.gearturner.sparklauncher.feature.widgets.WidgetHostManager
+import dev.gearturner.sparklauncher.feature.widgets.WidgetProvider
+import dev.gearturner.sparklauncher.feature.widgets.WidgetRepository
 import javax.inject.Inject
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -58,6 +64,16 @@ data class HomeCell(
         get() = shortcut?.let { IconSource.Shortcut(it, app.key) } ?: IconSource.App(app.key)
 }
 
+/** a hosted widget; [provider] is null when the providing app is gone or its profile is paused */
+data class WidgetTile(
+    override val itemId: Long,
+    override val placement: CellPlacement,
+    val appWidgetId: Int,
+    val providerKey: AppKey,
+    val options: WidgetOptions,
+    val provider: WidgetProvider?,
+) : HomeTile
+
 data class FolderTile(
     override val itemId: Long,
     /** null until the user names it, so the ui can show a localized default */
@@ -87,6 +103,8 @@ class HomeViewModel @Inject constructor(
     private val shortcutPlacement: ShortcutPlacement,
     private val overrides: AppOverridesRepository,
     private val settingsRepository: SettingsRepository,
+    private val widgets: WidgetRepository,
+    private val widgetHost: WidgetHostManager,
 ) : ViewModel() {
 
     private val events = Channel<HomeEvent>(Channel.BUFFERED)
@@ -95,19 +113,23 @@ class HomeViewModel @Inject constructor(
     @Volatile
     private var latestItems: List<WorkspaceItem> = emptyList()
 
+    // shortcut and override state travel together so the main combine stays within five sources
+    private val decorations = combine(shortcuts.pinned, overrides.overrides, widgets.providers) { pinned, appOverrides, providers ->
+        Triple(pinned, appOverrides, providers)
+    }
+
     val state: StateFlow<HomeUiState> = combine(
         workspace.items.onEach { latestItems = it },
         apps.apps,
         settingsRepository.settings,
-        shortcuts.pinned,
-        overrides.overrides,
-    ) { items, installed, settings, pinned, appOverrides ->
+        decorations,
+    ) { items, installed, settings, (pinned, appOverrides, providers) ->
         if (installed == null) {
             HomeUiState(loading = true, settings = settings)
         } else {
             // without host access the pinned list reads empty, so placed shortcuts are trusted as is
             val pinnedOrNull = pinned.takeIf { shortcuts.hasHostPermission }
-            buildState(items, installed, settings, pinnedOrNull, appOverrides)
+            buildState(items, installed, settings, pinnedOrNull, appOverrides, providers.associateBy { it.key })
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), HomeUiState())
 
@@ -178,7 +200,77 @@ class HomeViewModel @Inject constructor(
     fun existing(itemId: Long): WorkspaceItem? = latestItems.firstOrNull { it.id == itemId }
 
     /** spark becoming the default home app is the moment shortcut access appears */
-    fun onResume() = shortcuts.refresh()
+    fun onResume() {
+        shortcuts.refresh()
+        widgets.refresh()
+    }
+
+    fun hasWidgets(packageName: String): Boolean = widgets.providers.value.any { it.key.packageName == packageName }
+
+    /**
+     * places a widget from the picker. the spot is checked before the system is asked to bind, so
+     * the user never grants access or fills in a setup screen for a widget that cannot land.
+     */
+    fun placeWidget(providerKey: AppKey, span: Span, target: DropTarget, binder: WidgetBinder?, onSettled: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                val provider = widgets.provider(providerKey)
+                val settings = settingsRepository.current()
+                val probe = Dragged.NewWidget(providerKey, NO_WIDGET_ID, span)
+                val fits = workspace.previewDrop(probe, target, settings.homeColumns, settings.homeRows, settings.dockSlots)
+                if (provider == null || binder == null || fits !is DropPlan.Place) {
+                    events.send(HomeEvent.DropRefused)
+                    return@launch
+                }
+                val appWidgetId = binder.bindAndConfigure(provider.info, provider.needsConfiguration) ?: return@launch
+                val placed = workspace.drop(
+                    Dragged.NewWidget(providerKey, appWidgetId, span),
+                    target,
+                    settings.homeColumns,
+                    settings.homeRows,
+                    settings.dockSlots,
+                )
+                // the spot can fill up while a setup screen is open; the bound widget is then released
+                if (placed !is DropPlan.Place) {
+                    widgetHost.delete(appWidgetId)
+                    events.send(HomeEvent.DropRefused)
+                }
+            } finally {
+                onSettled()
+            }
+        }
+    }
+
+    /** tapping a widget in the picker puts it in the first spot it fits */
+    fun addWidget(providerKey: AppKey, span: Span, binder: WidgetBinder?) {
+        viewModelScope.launch {
+            val settings = settingsRepository.current()
+            val spot = workspace.firstFreeDesktopSpot(span.x, span.y, settings.homeColumns, settings.homeRows)
+            if (spot == null) {
+                events.send(HomeEvent.ShortcutAdded(AddResult.NoSpace))
+                return@launch
+            }
+            placeWidget(providerKey, span, DropTarget.Desktop(spot.page, spot.cellX, spot.cellY), binder) {}
+        }
+    }
+
+    fun resizeWidget(itemId: Long, placement: CellPlacement) {
+        viewModelScope.launch {
+            val settings = settingsRepository.current()
+            if (!workspace.resize(itemId, placement, settings.homeColumns, settings.homeRows)) {
+                events.send(HomeEvent.DropRefused)
+            }
+        }
+    }
+
+    fun updateWidgetOptions(itemId: Long, options: WidgetOptions) {
+        viewModelScope.launch { workspace.updateWidgetOptions(itemId, options) }
+    }
+
+    fun reconfigureWidget(appWidgetId: Int, binder: WidgetBinder?) {
+        binder ?: return
+        viewModelScope.launch { binder.reconfigure(appWidgetId) }
+    }
 
     private suspend fun applyDefaultLayoutOnce() {
         if (settingsRepository.current().defaultLayoutApplied) return
@@ -191,6 +283,9 @@ class HomeViewModel @Inject constructor(
 
     private companion object {
         const val STOP_TIMEOUT_MS = 5_000L
+
+        // a placeholder for checking whether a spot fits before any id is allocated
+        const val NO_WIDGET_ID = 0
     }
 }
 
@@ -205,6 +300,7 @@ internal fun buildState(
     settings: LauncherSettings,
     pinned: Map<ShortcutKey, AppShortcut>? = null,
     appOverrides: Map<AppKey, AppOverride> = emptyMap(),
+    widgetProviders: Map<AppKey, WidgetProvider> = emptyMap(),
 ): HomeUiState {
     val byKey: Map<AppKey, AppInfo> = installed.associateBy { it.key }
     fun WorkspaceItem.toCell(): HomeCell? {
@@ -223,6 +319,12 @@ internal fun buildState(
         }
     }
     fun WorkspaceItem.toTile(): HomeTile? {
+        if (type == ItemType.WIDGET) {
+            val key = app ?: return null
+            val widgetId = appWidgetId ?: return null
+            // a widget keeps its cells even while unavailable, and shows a placeholder there
+            return WidgetTile(id, placement, widgetId, key, widgetOptions, widgetProviders[key])
+        }
         if (type != ItemType.FOLDER) return toCell()
         val children = items.filter { it.container == Container.Folder(id) }
             .sortedBy { it.placement.cellX }

@@ -17,6 +17,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -25,23 +27,47 @@ import dev.gearturner.sparklauncher.core.model.AppKey
 import kotlin.math.roundToInt
 
 /** where a drag started, which decides what dropping it can mean */
-enum class DragOrigin { Home, Folder, Drawer }
+enum class DragOrigin { Home, Folder, Drawer, WidgetPicker }
 
 @Immutable
 sealed interface DragPayload {
-    /** an item already on home, in the dock or in a folder */
-    data class Existing(val itemId: Long, val app: AppKey?, val canUninstall: Boolean) : DragPayload
+    /** an item already on home, in the dock or in a folder; widgets carry their size in cells */
+    data class Existing(
+        val itemId: Long,
+        val app: AppKey?,
+        val canUninstall: Boolean,
+        val spanX: Int = 1,
+        val spanY: Int = 1,
+    ) : DragPayload
 
     /** an app pulled out of the drawer, which becomes a new home item */
     data class NewApp(val key: AppKey, val canUninstall: Boolean) : DragPayload
+
+    /** a widget pulled out of the picker; it is bound to the system only once it lands somewhere valid */
+    data class NewWidget(val provider: AppKey, val spanX: Int, val spanY: Int) : DragPayload
 }
+
+val DragPayload.spanX: Int
+    get() = when (this) {
+        is DragPayload.Existing -> spanX
+        is DragPayload.NewApp -> 1
+        is DragPayload.NewWidget -> spanX
+    }
+
+val DragPayload.spanY: Int
+    get() = when (this) {
+        is DragPayload.Existing -> spanY
+        is DragPayload.NewApp -> 1
+        is DragPayload.NewWidget -> spanY
+    }
 
 @Immutable
 data class DragSession(
     val payload: DragPayload,
     val origin: DragOrigin,
     val icon: ImageBitmap?,
-    val iconSizePx: Float,
+    /** the size of the lifted copy; widgets keep their full size so the user sees what will fit */
+    val sizePx: Size,
     /** where in the icon the finger grabbed it, so the icon does not jump under the finger */
     val grabOffset: Offset,
     val fingerInRoot: Offset,
@@ -93,14 +119,15 @@ val LocalDragController = staticCompositionLocalOf<DragController?> { null }
 @Composable
 fun DragLayer(controller: DragController, modifier: Modifier = Modifier) {
     val session = controller.session ?: return
-    val sizeDp = with(LocalDensity.current) { session.iconSizePx.toDp() }
+    val widthDp = with(LocalDensity.current) { session.sizePx.width.toDp() }
+    val heightDp = with(LocalDensity.current) { session.sizePx.height.toDp() }
     Box(modifier = modifier.fillMaxSize()) {
         val lifted = Modifier
             .offset {
                 val topLeft = session.fingerInRoot - session.grabOffset
                 IntOffset(topLeft.x.roundToInt(), topLeft.y.roundToInt())
             }
-            .size(sizeDp)
+            .size(widthDp, heightDp)
             .graphicsLayer {
                 scaleX = LIFT_SCALE
                 scaleY = LIFT_SCALE
@@ -110,11 +137,11 @@ fun DragLayer(controller: DragController, modifier: Modifier = Modifier) {
         if (icon != null) {
             Image(bitmap = icon, contentDescription = null, modifier = lifted)
         } else {
-            // folders have no single bitmap, so a soft plate stands in for them while they move
+            // folders and widgets have no single bitmap, so a soft plate stands in while they move
             Box(
                 modifier = lifted.background(
                     MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f),
-                    RoundedCornerShape(percent = 30),
+                    RoundedCornerShape(24.dp),
                 ),
             )
         }

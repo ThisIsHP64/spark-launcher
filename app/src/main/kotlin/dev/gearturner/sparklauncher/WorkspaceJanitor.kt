@@ -4,6 +4,7 @@ import dev.gearturner.sparklauncher.core.apps.AppsRepository
 import dev.gearturner.sparklauncher.core.apps.di.ApplicationScope
 import dev.gearturner.sparklauncher.core.data.ShortcutPlacement
 import dev.gearturner.sparklauncher.core.data.WorkspaceRepository
+import dev.gearturner.sparklauncher.feature.widgets.WidgetHostManager
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -18,6 +19,8 @@ class WorkspaceJanitor @Inject constructor(
     private val apps: AppsRepository,
     private val workspace: WorkspaceRepository,
     private val shortcutPlacement: ShortcutPlacement,
+    // injected so the host exists from process start and frees ids of widgets removed here
+    @Suppress("unused") private val widgetHost: WidgetHostManager,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
     fun start() {

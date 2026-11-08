@@ -61,15 +61,16 @@
             </intent-filter>
         </activity>
 
-        <!-- the system starts this when an app asks to pin a shortcut; it must be exported for that -->
+        <!-- the system starts this when an app asks to pin a shortcut or widget; it must be exported for that -->
         <activity
-            android:name=".AddShortcutActivity"
+            android:name=".AddItemActivity"
             android:excludeFromRecents="true"
             android:exported="true"
             android:taskAffinity=""
             android:theme="@style/Theme.Spark.Dialog">
             <intent-filter>
                 <action android:name="android.content.pm.action.CONFIRM_PIN_SHORTCUT" />
+                <action android:name="android.content.pm.action.CONFIRM_PIN_APPWIDGET" />
             </intent-filter>
         </activity>
     </application>

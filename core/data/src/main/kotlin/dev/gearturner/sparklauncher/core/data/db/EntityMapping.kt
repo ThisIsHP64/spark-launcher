@@ -4,7 +4,10 @@ import dev.gearturner.sparklauncher.core.model.AppKey
 import dev.gearturner.sparklauncher.core.model.CellPlacement
 import dev.gearturner.sparklauncher.core.model.Container
 import dev.gearturner.sparklauncher.core.model.ItemType
+import dev.gearturner.sparklauncher.core.model.WidgetOptions
 import dev.gearturner.sparklauncher.core.model.WorkspaceItem
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 
 /** returns null for rows that cannot be represented, so one corrupt row never breaks the whole home screen */
 internal fun WorkspaceItemEntity.toModelOrNull(): WorkspaceItem? {
@@ -23,7 +26,18 @@ internal fun WorkspaceItemEntity.toModelOrNull(): WorkspaceItem? {
     }
     if (itemType == ItemType.APP && app == null) return null
     if (itemType == ItemType.SHORTCUT && (app == null || shortcutId.isNullOrEmpty())) return null
-    return WorkspaceItem(id, itemType, itemContainer, placement, app, customTitle, shortcutId)
+    if (itemType == ItemType.WIDGET && (app == null || appWidgetId == null)) return null
+    return WorkspaceItem(
+        id = id,
+        type = itemType,
+        container = itemContainer,
+        placement = placement,
+        app = app,
+        customTitle = customTitle,
+        shortcutId = shortcutId,
+        appWidgetId = appWidgetId,
+        widgetOptions = decodeWidgetOptions(widgetOptions),
+    )
 }
 
 internal fun WorkspaceItem.toEntity(): WorkspaceItemEntity = WorkspaceItemEntity(
@@ -45,4 +59,21 @@ internal fun WorkspaceItem.toEntity(): WorkspaceItemEntity = WorkspaceItemEntity
     userSerial = app?.userSerial,
     customTitle = customTitle,
     shortcutId = shortcutId,
+    appWidgetId = appWidgetId,
+    // defaults are left as null so untouched widgets pick up any future change to the defaults
+    widgetOptions = widgetOptions.takeIf { it != WidgetOptions() }?.let { optionsJson.encodeToString(WidgetOptions.serializer(), it) },
 )
+
+// unknown keys are ignored so options written by a newer version never break an older one
+private val optionsJson = Json { ignoreUnknownKeys = true }
+
+private fun decodeWidgetOptions(raw: String?): WidgetOptions {
+    if (raw.isNullOrBlank()) return WidgetOptions()
+    return try {
+        optionsJson.decodeFromString(WidgetOptions.serializer(), raw).sanitized()
+    } catch (e: SerializationException) {
+        WidgetOptions()
+    } catch (e: IllegalArgumentException) {
+        WidgetOptions()
+    }
+}

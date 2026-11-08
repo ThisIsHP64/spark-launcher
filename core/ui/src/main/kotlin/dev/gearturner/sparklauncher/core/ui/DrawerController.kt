@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -78,6 +79,9 @@ class DrawerController internal constructor(private val scope: CoroutineScope) {
         const val FLING_THRESHOLD = 800f
     }
 }
+
+/** lets menus inside the drawer close it, for example before opening the widget picker */
+val LocalDrawer = staticCompositionLocalOf<DrawerController?> { null }
 
 @Composable
 fun rememberDrawerController(): DrawerController {

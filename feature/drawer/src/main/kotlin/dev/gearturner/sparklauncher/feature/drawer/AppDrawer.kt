@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -71,6 +72,9 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.Widgets
+import dev.gearturner.sparklauncher.core.ui.LocalDrawer
+import dev.gearturner.sparklauncher.core.ui.LocalWidgetPicker
 import dev.gearturner.sparklauncher.core.model.IconSource
 import androidx.compose.ui.geometry.Rect
 import dev.gearturner.sparklauncher.core.ui.AppIcon
@@ -162,9 +166,10 @@ fun AppDrawer(
                 alpha = (drawer.value * 2f).coerceAtMost(1f)
             }
             .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.97f))
             .nestedScroll(closeOnOverscroll),
     ) {
+        // a surface sets the theme's text color and swallows touches, so home icons below never react
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.97f), modifier = Modifier.fillMaxSize()) {}
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -346,8 +351,19 @@ private fun drawerItemActions(
     val rename = stringResource(R.string.drawer_rename)
     val hide = stringResource(if (entry.hidden) R.string.drawer_unhide else R.string.drawer_hide)
     val uninstall = stringResource(R.string.drawer_uninstall)
+    val widgets = stringResource(R.string.drawer_widgets)
+    val picker = LocalWidgetPicker.current
+    val drawer = LocalDrawer.current
     return buildList {
         add(MenuAction(addToHome, Icons.Outlined.AddHome) { viewModel.addToHome(app) })
+        if (picker != null && viewModel.hasWidgets(app)) {
+            add(
+                MenuAction(widgets, Icons.Outlined.Widgets) {
+                    drawer?.close()
+                    picker.open(app.key.packageName)
+                },
+            )
+        }
         add(MenuAction(appInfo, Icons.Outlined.Info) { viewModel.openAppInfo(app, anchor.request()) })
         add(MenuAction(rename, Icons.Outlined.Edit, onRename))
         add(
@@ -379,7 +395,7 @@ private fun drawerDragHandler(
                 payload = payload,
                 origin = DragOrigin.Drawer,
                 icon = anchor.icon,
-                iconSizePx = iconBoundsInRoot.width,
+                sizePx = iconBoundsInRoot.size,
                 grabOffset = fingerInRoot - iconBoundsInRoot.topLeft,
                 fingerInRoot = fingerInRoot,
             ),

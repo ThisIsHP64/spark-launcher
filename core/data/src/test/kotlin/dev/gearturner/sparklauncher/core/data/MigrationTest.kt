@@ -43,6 +43,26 @@ class MigrationTest {
         }
     }
 
+    @Test
+    fun version2ShortcutsSurviveMigrationTo3() {
+        helper.createDatabase(DB_NAME, 2).apply {
+            execSQL(
+                "INSERT INTO workspace_items (id, type, container, page, cell_x, cell_y, span_x, span_y, " +
+                    "package_name, class_name, user_serial, custom_title, shortcut_id) " +
+                    "VALUES (3, 'SHORTCUT', 'desktop', 1, 0, 2, 1, 1, 'com.maps', 'com.maps.Main', 0, 'Home', 'home')",
+            )
+            close()
+        }
+        val migrated = helper.runMigrationsAndValidate(DB_NAME, 3, true)
+        migrated.query("SELECT shortcut_id, page, app_widget_id, widget_options FROM workspace_items").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("home", cursor.getString(0))
+            assertEquals(1, cursor.getInt(1))
+            assertTrue(cursor.isNull(2))
+            assertTrue(cursor.isNull(3))
+        }
+    }
+
     private companion object {
         const val DB_NAME = "migration-test"
     }

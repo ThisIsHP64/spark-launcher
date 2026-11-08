@@ -16,6 +16,12 @@ import dev.gearturner.sparklauncher.core.theme.SparkTheme
 import dev.gearturner.sparklauncher.core.ui.HomeIconRegistry
 import dev.gearturner.sparklauncher.core.ui.LocalHomeIconRegistry
 import dev.gearturner.sparklauncher.core.ui.LocalIconRepository
+import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetBinder
+import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetViews
+import dev.gearturner.sparklauncher.feature.widgets.WidgetHostManager
+import dev.gearturner.sparklauncher.feature.widgets.WidgetViews
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -29,6 +35,12 @@ class LauncherActivity : ComponentActivity() {
 
     @Inject
     lateinit var userManager: UserManager
+
+    @Inject
+    lateinit var widgetHost: WidgetHostManager
+
+    private lateinit var widgetBinder: WidgetBindFlow
+    private lateinit var widgetViews: WidgetViews
 
     // owned by the activity so the swipe home handshake can be answered before compose recomposes
     private val iconRegistry = HomeIconRegistry()
@@ -57,11 +69,16 @@ class LauncherActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         addOnNewIntentListener(homeIntentListener)
         answerGestureContract(intent)
+        widgetBinder = WidgetBindFlow(this, widgetHost)
+        widgetViews = WidgetViews(this, widgetHost)
+        lifecycleScope.launch { widgetHost.releaseOrphans() }
         setContent {
             SparkTheme {
                 CompositionLocalProvider(
                     LocalIconRepository provides iconRepository,
                     LocalHomeIconRegistry provides iconRegistry,
+                    LocalWidgetBinder provides widgetBinder,
+                    LocalWidgetViews provides widgetViews,
                 ) {
                     LauncherRoot(homePresses = homePressEvents)
                 }
@@ -99,6 +116,25 @@ class LauncherActivity : ComponentActivity() {
         ).also { it.show() }
     }
 
+    override fun onStart() {
+        super.onStart()
+        widgetHost.startListening()
+    }
+
+    override fun onStop() {
+        widgetHost.stopListening()
+        super.onStop()
+    }
+
+    // appwidgethost can only start a widget's setup screen with a request code, so results land here
+    @Deprecated("routes widget bind and setup results, which have no activity result api equivalent")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (!widgetBinder.onActivityResult(requestCode, resultCode)) {
+            @Suppress("DEPRECATION")
+            super.onActivityResult(requestCode, resultCode, data)
+        }
+    }
+
     override fun onPause() {
         // a new interaction replaces any stand in icon left from an interrupted animation
         floatingIcon?.dismiss()
@@ -108,6 +144,7 @@ class LauncherActivity : ComponentActivity() {
 
     override fun onDestroy() {
         floatingIcon?.dismiss()
+        widgetViews.clear()
         removeOnNewIntentListener(homeIntentListener)
         super.onDestroy()
     }

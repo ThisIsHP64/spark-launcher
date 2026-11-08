@@ -6,13 +6,14 @@ import androidx.room.RoomDatabase
 
 /**
  * every schema change ships as a migration, never a destructive reset, because the database is
- * the user's hand built home screen. version 2 adds shortcut ids and per app overrides.
+ * the user's hand built home screen. version 2 adds shortcut ids and per app overrides,
+ * version 3 adds widget ids and widget options.
  */
 @Database(
     entities = [WorkspaceItemEntity::class, AppOverrideEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 abstract class SparkDatabase : RoomDatabase() {
     abstract fun workspaceDao(): WorkspaceDao

@@ -12,3 +12,8 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     implementation(libs.androidx.activity.compose)
 }
+
+dependencies {
+    // the drawer only reads which apps offer widgets, to show a widgets entry in their menu
+    implementation(project(":feature:widgets"))
+}

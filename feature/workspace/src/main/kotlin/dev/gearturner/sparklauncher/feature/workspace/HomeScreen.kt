@@ -1,6 +1,23 @@
 package dev.gearturner.sparklauncher.feature.workspace
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Wallpaper
+import androidx.compose.material.icons.outlined.Widgets
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.ui.unit.IntOffset
+import dev.gearturner.sparklauncher.core.model.Span
+import dev.gearturner.sparklauncher.core.ui.LocalWidgetPicker
+import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetBinder
+import dev.gearturner.sparklauncher.feature.widgets.WidgetBinder
+import kotlin.math.roundToInt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -73,7 +90,11 @@ fun HomeScreen(
     val geometry = remember { HomeGeometry() }
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
     var openFolderId by remember { mutableStateOf<Long?>(null) }
+    var resizingId by remember { mutableStateOf<Long?>(null) }
+    var emptyMenuAt by remember { mutableStateOf<Offset?>(null) }
     val density = LocalDensity.current
+    val binder = LocalWidgetBinder.current
+    val picker = LocalWidgetPicker.current
 
     HomeEvents(viewModel)
     LaunchedEffect(pagerState, iconRegistry) {
@@ -84,15 +105,20 @@ fun HomeScreen(
         homePresses.collect {
             when {
                 drawer.isVisible -> drawer.close()
+                picker?.isOpen == true -> picker.close()
+                resizingId != null -> resizingId = null
                 openFolderId != null -> openFolderId = null
                 else -> pagerState.animateScrollToPage(0)
             }
         }
     }
-    DisposableEffect(dragController, viewModel, geometry, pagerState) {
+    // resizing ends as soon as anything else moves, so the frame never points at a stale spot
+    LaunchedEffect(pagerState) { snapshotFlow { pagerState.currentPage }.collect { resizingId = null } }
+    LaunchedEffect(session != null) { if (session != null) resizingId = null }
+    DisposableEffect(dragController, viewModel, geometry, pagerState, binder) {
         dragController?.dropHandler = DropHandler { ended, onSettled ->
-            val zone = geometry.resolve(ended.fingerInRoot, pagerState.currentPage, ended.payload)
-            handleDrop(zone, ended.payload, viewModel, onSettled)
+            val zone = geometry.resolve(ended, pagerState.currentPage)
+            handleDrop(zone, ended.payload, viewModel, binder, onSettled)
             // dragging an app out of a folder closes the folder once the app has landed
             if (ended.origin == DragOrigin.Folder) openFolderId = null
         }
@@ -103,7 +129,7 @@ fun HomeScreen(
     val hovered by remember(dragController) {
         derivedStateOf {
             val active = dragController?.session ?: return@derivedStateOf DropZone.None
-            geometry.resolve(active.fingerInRoot, pagerState.currentPage, active.payload)
+            geometry.resolve(active, pagerState.currentPage)
         }
     }
 
@@ -130,7 +156,18 @@ fun HomeScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .onGloballyPositioned { geometry.pagerBounds = it.boundsInRoot() },
+                        .onGloballyPositioned {
+                            geometry.pagerBounds = it.boundsInRoot()
+                            // the picker sizes previews and dragged widgets from the real cell size
+                            picker?.let { p ->
+                                with(density) {
+                                    p.cellWidthDp = geometry.cellWidthPx().toDp().value
+                                    p.cellHeightDp = geometry.cellHeightPx().toDp().value
+                                }
+                                p.columns = geometry.columns
+                                p.rows = geometry.rows
+                            }
+                        },
                     beyondViewportPageCount = 1,
                 ) { page ->
                     PageGrid(
@@ -142,6 +179,8 @@ fun HomeScreen(
                         showLabels = state.settings.showHomeLabels,
                         viewModel = viewModel,
                         onOpenFolder = { openFolderId = it },
+                        onResizeWidget = { resizingId = it.itemId },
+                        onEmptyLongPress = { emptyMenuAt = it },
                     )
                 }
                 PageIndicator(pagerState)
@@ -164,6 +203,18 @@ fun HomeScreen(
             DropHighlight(hovered, rootOrigin)
             DropBar(session, hovered, geometry)
         }
+        val resizing = resizingId?.let { id ->
+            state.pages.getOrNull(pagerState.currentPage)?.firstOrNull { it.itemId == id } as? WidgetTile
+        }
+        if (resizing != null) {
+            BackHandler { resizingId = null }
+            ResizeFrame(resizing, geometry, rootOrigin, viewModel, onDone = { resizingId = null })
+        }
+        EmptySpaceMenu(
+            at = emptyMenuAt?.minus(rootOrigin),
+            onDismiss = { emptyMenuAt = null },
+            onWidgets = { picker?.open() },
+        )
         val openFolder = openFolderId?.let { id ->
             (state.pages.flatten() + state.dock).firstOrNull { it.itemId == id } as? FolderTile
         }
@@ -183,12 +234,23 @@ fun HomeScreen(
     }
 }
 
-private fun handleDrop(zone: DropZone, payload: DragPayload, viewModel: HomeViewModel, onSettled: () -> Unit) {
+private fun handleDrop(
+    zone: DropZone,
+    payload: DragPayload,
+    viewModel: HomeViewModel,
+    binder: WidgetBinder?,
+    onSettled: () -> Unit,
+) {
     when (zone) {
         is DropZone.Cell -> {
+            if (payload is DragPayload.NewWidget) {
+                viewModel.placeWidget(payload.provider, Span(payload.spanX, payload.spanY), zone.target, binder, onSettled)
+                return
+            }
             val dragged = when (payload) {
                 is DragPayload.Existing -> viewModel.existing(payload.itemId)?.let(Dragged::Existing)
                 is DragPayload.NewApp -> Dragged.NewApp(payload.key)
+                is DragPayload.NewWidget -> null
             }
             if (dragged == null) onSettled() else viewModel.drop(dragged, zone.target, onSettled)
         }
@@ -200,10 +262,48 @@ private fun handleDrop(zone: DropZone, payload: DragPayload, viewModel: HomeView
             when (payload) {
                 is DragPayload.Existing -> payload.app?.let(viewModel::uninstall)
                 is DragPayload.NewApp -> viewModel.uninstall(payload.key)
+                is DragPayload.NewWidget -> Unit
             }
             onSettled()
         }
         DropZone.None -> onSettled()
+    }
+}
+
+/** the menu for a long press on empty home space, placed where the finger was */
+@Composable
+private fun EmptySpaceMenu(at: Offset?, onDismiss: () -> Unit, onWidgets: () -> Unit) {
+    val context = LocalContext.current
+    val wallpaperTitle = stringResource(R.string.workspace_wallpaper)
+    Box(
+        modifier = Modifier.offset {
+            val point = at ?: Offset.Zero
+            IntOffset(point.x.roundToInt(), point.y.roundToInt())
+        },
+    ) {
+        DropdownMenu(expanded = at != null, onDismissRequest = onDismiss) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.workspace_widgets)) },
+                leadingIcon = { Icon(Icons.Outlined.Widgets, contentDescription = null) },
+                onClick = {
+                    onDismiss()
+                    onWidgets()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(wallpaperTitle) },
+                leadingIcon = { Icon(Icons.Outlined.Wallpaper, contentDescription = null) },
+                onClick = {
+                    onDismiss()
+                    try {
+                        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), wallpaperTitle))
+                    } catch (e: ActivityNotFoundException) {
+                        // no wallpaper app at all is unusual but possible on stripped down builds
+                        Toast.makeText(context, R.string.workspace_no_wallpaper_app, Toast.LENGTH_SHORT).show()
+                    }
+                },
+            )
+        }
     }
 }
 

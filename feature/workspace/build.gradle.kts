@@ -12,3 +12,8 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     implementation(libs.androidx.activity.compose)
 }
+
+dependencies {
+    // widgets are hosted on home pages, so the workspace builds on the widget host feature
+    implementation(project(":feature:widgets"))
+}

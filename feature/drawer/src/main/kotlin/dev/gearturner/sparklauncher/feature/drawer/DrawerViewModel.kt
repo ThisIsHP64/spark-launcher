@@ -17,6 +17,7 @@ import dev.gearturner.sparklauncher.core.model.AppKey
 import dev.gearturner.sparklauncher.core.model.AppOverride
 import dev.gearturner.sparklauncher.core.model.AppShortcut
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
+import dev.gearturner.sparklauncher.feature.widgets.WidgetRepository
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -57,9 +59,15 @@ class DrawerViewModel @Inject constructor(
     private val overrides: AppOverridesRepository,
     private val workspace: WorkspaceRepository,
     private val settingsRepository: SettingsRepository,
+    widgets: WidgetRepository,
 ) : ViewModel() {
 
     private val query = MutableStateFlow("")
+
+    // which apps offer widgets, so the menu only shows a widgets entry where it leads somewhere
+    private val widgetPackages: StateFlow<Set<Pair<String, Long>>> = widgets.providers
+        .map { list -> list.map { it.key.packageName to it.key.userSerial }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
     private val events = Channel<DrawerEvent>(Channel.BUFFERED)
     val oneShotEvents: Flow<DrawerEvent> = events.receiveAsFlow()
 
@@ -123,6 +131,8 @@ class DrawerViewModel @Inject constructor(
     }
 
     fun canUninstall(app: AppInfo): Boolean = apps.canUninstall(app.key)
+
+    fun hasWidgets(app: AppInfo): Boolean = widgetPackages.value.contains(app.key.packageName to app.key.userSerial)
 
     fun uninstall(app: AppInfo) {
         apps.requestUninstall(app.key)

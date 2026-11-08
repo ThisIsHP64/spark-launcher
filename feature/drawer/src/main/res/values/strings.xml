@@ -8,6 +8,7 @@
     <string name="drawer_hide">Hide from drawer</string>
     <string name="drawer_unhide">Show in drawer</string>
     <string name="drawer_uninstall">Uninstall</string>
+    <string name="drawer_widgets">Widgets</string>
     <string name="drawer_added">Added to home screen</string>
     <string name="drawer_already_added">Already on the home screen</string>
     <string name="drawer_no_space">No room on the home screen</string>
