@@ -8,10 +8,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Resources
+import android.net.Uri
 import android.util.Log
+import android.widget.Toast
 import androidx.annotation.RawRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
@@ -30,6 +34,7 @@ import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -85,6 +90,17 @@ internal fun licenseParagraphs(text: String): List<String> =
 
 internal fun LazyListScope.aboutPage(onOpenLicense: (LicenseKind) -> Unit, onOpenLibraries: () -> Unit) {
     item { BrandHeader(showDetails = true) }
+    item { SectionHeader(stringResource(R.string.settings_about_updates)) }
+    item {
+        val context = LocalContext.current
+        SettingsCard {
+            AboutRow(
+                Icons.Outlined.SystemUpdate,
+                stringResource(R.string.settings_about_check_updates),
+                stringResource(R.string.settings_about_check_updates_summary),
+            ) { openReleasesPage(context) }
+        }
+    }
     item { SectionHeader(stringResource(R.string.settings_about_credits)) }
     item {
         SettingsCard {
@@ -269,6 +285,19 @@ private fun AboutRow(icon: ImageVector?, title: String, summary: String, onClick
         }
     }
 }
+
+/** the app has no internet access of its own, so updates are checked by handing the page to the browser */
+private fun openReleasesPage(context: Context) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(RELEASES_URL)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(intent)
+    } catch (e: ActivityNotFoundException) {
+        Log.w("AboutSettings", "no browser to open the releases page", e)
+        Toast.makeText(context, R.string.settings_about_no_browser, Toast.LENGTH_SHORT).show()
+    }
+}
+
+private const val RELEASES_URL = "https://github.com/ThisIsHP64/spark-launcher/releases"
 
 private fun appVersion(context: Context): String? = try {
     context.packageManager.getPackageInfo(context.packageName, 0).versionName

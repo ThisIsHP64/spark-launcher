@@ -116,6 +116,10 @@
     <string name="settings_about_app_name">Spark Launcher</string>
     <string name="settings_about_version">Version %1$s</string>
     <string name="settings_about_tagline">A fast, private home screen. Free and open source.</string>
+    <string name="settings_about_updates">Updates</string>
+    <string name="settings_about_check_updates">Check for updates</string>
+    <string name="settings_about_check_updates_summary">Opens the releases page on GitHub</string>
+    <string name="settings_about_no_browser">No browser found to open the releases page</string>
     <string name="settings_about_credits">Credits</string>
     <string name="settings_about_author">ThisIsHP64 (Hunter Pageau)</string>
     <string name="settings_about_author_role">Creator and developer</string>
