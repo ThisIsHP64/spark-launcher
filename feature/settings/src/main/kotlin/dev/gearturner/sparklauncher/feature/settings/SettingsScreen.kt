@@ -32,13 +32,17 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -103,6 +107,7 @@ internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewM
 
             item { SectionHeader(stringResource(R.string.settings_section_icons)) }
             item { IconPreviewRow(viewModel) }
+            item { IconPackRow(settings.iconPack, viewModel) }
             item { IconShapeRow(settings.iconShape) { shape -> viewModel.update { it.copy(iconShape = shape) } } }
             if (settings.iconShape == IconShape.ROUNDED) {
                 item {
@@ -334,6 +339,65 @@ private fun IconShapeRow(selected: IconShape, onSelect: (IconShape) -> Unit) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun IconPackRow(selected: String?, viewModel: SettingsViewModel) {
+    val packs by viewModel.packs.collectAsStateWithLifecycle()
+    var choosing by remember { mutableStateOf(false) }
+    val none = stringResource(R.string.settings_icon_pack_none)
+    // a chosen pack that was uninstalled reads as app icons, which is what is showing; the choice
+    // itself is kept so reinstalling the pack brings its icons back
+    val active = packs?.firstOrNull { it.packageName == selected }
+    val current = active?.label ?: none
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { choosing = true }
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+    ) {
+        Text(stringResource(R.string.settings_icon_pack), style = MaterialTheme.typography.bodyLarge)
+        Text(current, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    if (choosing) {
+        val options = listOf<Pair<String?, String>>(null to none) + packs.orEmpty().map { it.packageName to it.label }
+        AlertDialog(
+            onDismissRequest = { choosing = false },
+            title = { Text(stringResource(R.string.settings_icon_pack)) },
+            text = {
+                LazyColumn {
+                    items(options.size) { index ->
+                        val (pkg, label) = options[index]
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    choosing = false
+                                    viewModel.update { it.copy(iconPack = pkg) }
+                                }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = pkg == active?.packageName, onClick = null)
+                            Spacer(modifier = Modifier.size(12.dp))
+                            Text(label)
+                        }
+                    }
+                    if (packs?.isEmpty() == true) {
+                        item {
+                            Text(
+                                stringResource(R.string.settings_icon_pack_empty),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { choosing = false }) { Text(stringResource(R.string.settings_close)) } },
+        )
     }
 }
 

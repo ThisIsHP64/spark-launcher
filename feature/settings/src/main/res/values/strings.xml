@@ -21,6 +21,10 @@
     <string name="settings_style_fidelity">Fidelity</string>
     <string name="settings_style_monochrome">Monochrome</string>
     <string name="settings_icon_shape">Icon shape</string>
+    <string name="settings_icon_pack">Icon pack</string>
+    <string name="settings_icon_pack_none">App icons</string>
+    <string name="settings_icon_pack_empty">No icon packs installed. Packs made for Nova or ADW work with Spark.</string>
+    <string name="settings_close">Close</string>
     <string name="settings_shape_circle">Circle</string>
     <string name="settings_shape_squircle">Squircle</string>
     <string name="settings_shape_rounded">Rounded</string>

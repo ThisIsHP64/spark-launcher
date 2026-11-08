@@ -25,9 +25,13 @@ sealed interface IconSource {
     data class Shortcut(val key: ShortcutKey, val owner: AppKey?) : IconSource
 }
 
+/** one drawable from an icon pack, chosen by the user for a single app */
+data class CustomIcon(val packPackage: String, val drawableName: String)
+
 /** per app choices that apply everywhere the app appears, unlike a single home item's title */
 data class AppOverride(
     val key: AppKey,
     val hidden: Boolean = false,
     val customLabel: String? = null,
+    val customIcon: CustomIcon? = null,
 )

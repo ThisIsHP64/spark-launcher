@@ -69,6 +69,7 @@ import dev.gearturner.sparklauncher.core.data.AddResult
 import androidx.compose.material.icons.outlined.AddHome
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -84,6 +85,7 @@ import dev.gearturner.sparklauncher.core.ui.DragPayload
 import dev.gearturner.sparklauncher.core.ui.DragSession
 import dev.gearturner.sparklauncher.core.ui.IconDragHandler
 import dev.gearturner.sparklauncher.core.ui.LocalDragController
+import dev.gearturner.sparklauncher.core.ui.IconPickerDialog
 import dev.gearturner.sparklauncher.core.ui.ItemMenu
 import dev.gearturner.sparklauncher.core.ui.LaunchAnchor
 import dev.gearturner.sparklauncher.core.ui.MenuAction
@@ -285,8 +287,9 @@ private fun DrawerItem(
     val app = entry.app
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
+    var changingIcon by remember { mutableStateOf(false) }
     val anchor = rememberLaunchAnchor()
-    val actions = drawerItemActions(entry, viewModel, anchor, onRename = { renaming = true })
+    val actions = drawerItemActions(entry, viewModel, anchor, onRename = { renaming = true }, onChangeIcon = { changingIcon = true })
     val dragController = LocalDragController.current
     val canUninstall = viewModel.canUninstall(app)
     val dragHandler = remember(dragController, app.key, canUninstall, drawer) {
@@ -332,6 +335,23 @@ private fun DrawerItem(
             onDismiss = { renaming = false },
         )
     }
+    if (changingIcon) {
+        IconPickerDialog(
+            appLabel = app.label,
+            hasCustomIcon = entry.customIcon,
+            loadPacks = viewModel::iconPacks,
+            loadNames = viewModel::packIconNames,
+            onPick = {
+                changingIcon = false
+                viewModel.setCustomIcon(app, it)
+            },
+            onReset = {
+                changingIcon = false
+                viewModel.setCustomIcon(app, null)
+            },
+            onDismiss = { changingIcon = false },
+        )
+    }
 }
 
 @Composable
@@ -340,8 +360,10 @@ private fun drawerItemActions(
     viewModel: DrawerViewModel,
     anchor: LaunchAnchor,
     onRename: () -> Unit,
+    onChangeIcon: () -> Unit,
 ): List<MenuAction> {
     val app = entry.app
+    val changeIcon = stringResource(R.string.drawer_change_icon)
     val addToHome = stringResource(R.string.drawer_add_to_home)
     val appInfo = stringResource(R.string.drawer_app_info)
     val rename = stringResource(R.string.drawer_rename)
@@ -362,6 +384,7 @@ private fun drawerItemActions(
         }
         add(MenuAction(appInfo, Icons.Outlined.Info) { viewModel.openAppInfo(app, anchor.request()) })
         add(MenuAction(rename, Icons.Outlined.Edit, onRename))
+        if (viewModel.canChangeIcon(entry)) add(MenuAction(changeIcon, Icons.Outlined.Image, onChangeIcon))
         add(
             MenuAction(hide, if (entry.hidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff) {
                 viewModel.setHidden(app, !entry.hidden)

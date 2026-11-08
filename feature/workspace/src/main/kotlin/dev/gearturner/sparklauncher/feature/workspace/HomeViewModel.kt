@@ -26,6 +26,9 @@ import dev.gearturner.sparklauncher.core.model.IconSource
 import dev.gearturner.sparklauncher.core.model.ItemType
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
 import dev.gearturner.sparklauncher.core.model.ShortcutKey
+import dev.gearturner.sparklauncher.core.icons.IconPackInfo
+import dev.gearturner.sparklauncher.core.icons.IconPackRepository
+import dev.gearturner.sparklauncher.core.model.CustomIcon
 import dev.gearturner.sparklauncher.core.model.Span
 import dev.gearturner.sparklauncher.core.model.WidgetOptions
 import dev.gearturner.sparklauncher.core.model.WorkspaceItem
@@ -105,7 +108,12 @@ class HomeViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val widgets: WidgetRepository,
     private val widgetHost: WidgetHostManager,
+    private val iconPacks: IconPackRepository,
 ) : ViewModel() {
+
+    @Volatile
+    private var latestOverrides: Map<AppKey, AppOverride> = emptyMap()
+
 
     private val events = Channel<HomeEvent>(Channel.BUFFERED)
     val oneShotEvents: Flow<HomeEvent> = events.receiveAsFlow()
@@ -114,7 +122,11 @@ class HomeViewModel @Inject constructor(
     private var latestItems: List<WorkspaceItem> = emptyList()
 
     // shortcut and override state travel together so the main combine stays within five sources
-    private val decorations = combine(shortcuts.pinned, overrides.overrides, widgets.providers) { pinned, appOverrides, providers ->
+    private val decorations = combine(
+        shortcuts.pinned,
+        overrides.overrides.onEach { latestOverrides = it },
+        widgets.providers,
+    ) { pinned, appOverrides, providers ->
         Triple(pinned, appOverrides, providers)
     }
 
@@ -203,6 +215,20 @@ class HomeViewModel @Inject constructor(
     fun onResume() {
         shortcuts.refresh()
         widgets.refresh()
+    }
+
+    suspend fun iconPacks(): List<IconPackInfo> = iconPacks.installedPacks()
+
+    suspend fun packIconNames(pack: String): List<String> = iconPacks.drawableNames(pack)
+
+    fun hasCustomIcon(key: AppKey): Boolean = latestOverrides[key]?.customIcon != null
+
+    /** change icon is offered only when it can lead somewhere: a pack to pick from, or an icon to reset */
+    fun canChangeIcon(key: AppKey): Boolean = iconPacks.packs.value.isNotEmpty() || hasCustomIcon(key)
+
+    /** null restores the app's own icon, or the selected pack's */
+    fun setCustomIcon(key: AppKey, icon: CustomIcon?) {
+        viewModelScope.launch { overrides.setIcon(key, icon) }
     }
 
     fun hasWidgets(packageName: String): Boolean = widgets.providers.value.any { it.key.packageName == packageName }

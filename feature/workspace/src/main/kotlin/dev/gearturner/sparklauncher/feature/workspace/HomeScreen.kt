@@ -275,11 +275,11 @@ private fun handleDrop(
 private fun EmptySpaceMenu(at: Offset?, onDismiss: () -> Unit, onWidgets: () -> Unit, onSettings: () -> Unit) {
     val context = LocalContext.current
     val wallpaperTitle = stringResource(R.string.workspace_wallpaper)
+    // the menu animates out after it is dismissed, so it keeps its last spot instead of jumping to the corner
+    var anchor by remember { mutableStateOf(Offset.Zero) }
+    if (at != null) anchor = at
     Box(
-        modifier = Modifier.offset {
-            val point = at ?: Offset.Zero
-            IntOffset(point.x.roundToInt(), point.y.roundToInt())
-        },
+        modifier = Modifier.offset { IntOffset(anchor.x.roundToInt(), anchor.y.roundToInt()) },
     ) {
         DropdownMenu(expanded = at != null, onDismissRequest = onDismiss) {
             DropdownMenuItem(

@@ -37,6 +37,9 @@ fun Modifier.iconGestures(
 ): Modifier = pointerInput(onClick, onLongClick, dragHandler) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = true)
+        // claiming the press stops tap detectors behind the icon, such as the empty space long
+        // press; scrolling still works because pagers and the drawer swipe ignore this claim
+        down.consume()
         var up: PointerInputChange? = null
         val released = try {
             withTimeout(viewConfiguration.longPressTimeoutMillis) {

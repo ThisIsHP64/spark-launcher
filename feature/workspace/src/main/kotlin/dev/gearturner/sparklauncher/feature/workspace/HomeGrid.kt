@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -39,6 +40,7 @@ import dev.gearturner.sparklauncher.core.ui.DragOrigin
 import dev.gearturner.sparklauncher.core.ui.DragPayload
 import dev.gearturner.sparklauncher.core.ui.DragSession
 import dev.gearturner.sparklauncher.core.ui.IconDragHandler
+import dev.gearturner.sparklauncher.core.ui.IconPickerDialog
 import dev.gearturner.sparklauncher.core.ui.ItemMenu
 import dev.gearturner.sparklauncher.core.ui.LabelStyle
 import dev.gearturner.sparklauncher.core.ui.LaunchAnchor
@@ -169,10 +171,11 @@ internal fun HomeItem(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
+    var changingIcon by remember { mutableStateOf(false) }
     val anchor = rememberLaunchAnchor()
     // only real app icons are close animation targets; a shortcut is not where its app lives
     if (cell.shortcut == null && registryPage != null) RegisterHomeIcon(cell.itemId, cell.app.key, registryPage, anchor)
-    val actions = homeItemActions(cell, viewModel, anchor, onRename = { renaming = true })
+    val actions = homeItemActions(cell, viewModel, anchor, onRename = { renaming = true }, onChangeIcon = { changingIcon = true })
     val controller = LocalDragController.current
     val payload = DragPayload.Existing(cell.itemId, cell.app.key, viewModel.canUninstall(cell))
     val dragHandler = remember(controller, payload, origin) {
@@ -208,6 +211,23 @@ internal fun HomeItem(
                 viewModel.rename(cell.itemId, title)
             },
             onDismiss = { renaming = false },
+        )
+    }
+    if (changingIcon) {
+        IconPickerDialog(
+            appLabel = cell.app.label,
+            hasCustomIcon = viewModel.hasCustomIcon(cell.app.key),
+            loadPacks = viewModel::iconPacks,
+            loadNames = viewModel::packIconNames,
+            onPick = {
+                changingIcon = false
+                viewModel.setCustomIcon(cell.app.key, it)
+            },
+            onReset = {
+                changingIcon = false
+                viewModel.setCustomIcon(cell.app.key, null)
+            },
+            onDismiss = { changingIcon = false },
         )
     }
 }
@@ -312,8 +332,10 @@ private fun homeItemActions(
     viewModel: HomeViewModel,
     anchor: LaunchAnchor,
     onRename: () -> Unit,
+    onChangeIcon: () -> Unit,
 ): List<MenuAction> {
     val appInfo = stringResource(R.string.workspace_app_info)
+    val changeIcon = stringResource(R.string.workspace_change_icon)
     val rename = stringResource(R.string.workspace_rename)
     val remove = stringResource(R.string.workspace_remove)
     val uninstall = stringResource(R.string.workspace_uninstall)
@@ -325,6 +347,7 @@ private fun homeItemActions(
             add(MenuAction(widgets, Icons.Outlined.Widgets) { picker.open(cell.app.key.packageName) })
         }
         add(MenuAction(rename, Icons.Outlined.Edit, onRename))
+        if (cell.shortcut == null && viewModel.canChangeIcon(cell.app.key)) add(MenuAction(changeIcon, Icons.Outlined.Image, onChangeIcon))
         add(MenuAction(remove, Icons.Outlined.Close) { viewModel.remove(cell.itemId) })
         if (viewModel.canUninstall(cell)) {
             add(MenuAction(uninstall, Icons.Outlined.Delete) { viewModel.uninstall(cell.app.key) })

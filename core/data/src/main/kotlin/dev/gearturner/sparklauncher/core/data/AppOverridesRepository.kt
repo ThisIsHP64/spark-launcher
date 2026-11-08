@@ -4,6 +4,7 @@ import dev.gearturner.sparklauncher.core.data.db.AppOverrideDao
 import dev.gearturner.sparklauncher.core.data.db.AppOverrideEntity
 import dev.gearturner.sparklauncher.core.model.AppKey
 import dev.gearturner.sparklauncher.core.model.AppOverride
+import dev.gearturner.sparklauncher.core.model.CustomIcon
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -21,7 +22,8 @@ class AppOverridesRepository @Inject constructor(
     val overrides: Flow<Map<AppKey, AppOverride>> = dao.observeAll().map { rows ->
         rows.associate { row ->
             val key = AppKey(row.packageName, row.className, row.userSerial)
-            key to AppOverride(key, row.hidden, row.customLabel)
+            val icon = if (row.iconPack != null && row.iconDrawable != null) CustomIcon(row.iconPack, row.iconDrawable) else null
+            key to AppOverride(key, row.hidden, row.customLabel, icon)
         }
     }
 
@@ -32,12 +34,18 @@ class AppOverridesRepository @Inject constructor(
         it.copy(customLabel = label?.trim()?.take(MAX_LABEL_LENGTH)?.ifEmpty { null })
     }
 
+    /** null puts the app's own icon, or the icon pack's, back */
+    suspend fun setIcon(key: AppKey, icon: CustomIcon?) = update(key) {
+        val valid = icon?.takeIf { isValidPackage(it.packPackage) && DRAWABLE_NAME.matches(it.drawableName) }
+        it.copy(iconPack = valid?.packPackage, iconDrawable = valid?.drawableName)
+    }
+
     private suspend fun update(key: AppKey, transform: (AppOverrideEntity) -> AppOverrideEntity) = lock.withLock {
         val current = dao.get(key.packageName, key.className, key.userSerial)
             ?: AppOverrideEntity(key.packageName, key.className, key.userSerial)
         val next = transform(current)
         // rows that override nothing are deleted so the table only holds real choices
-        if (!next.hidden && next.customLabel == null) {
+        if (!next.hidden && next.customLabel == null && next.iconPack == null) {
             dao.delete(key.packageName, key.className, key.userSerial)
         } else {
             dao.upsert(next)
@@ -46,6 +54,12 @@ class AppOverridesRepository @Inject constructor(
 
     companion object {
         const val MAX_LABEL_LENGTH = 48
+
+        // resource entry names; anything else cannot be a drawable and is refused before it is stored
+        private val DRAWABLE_NAME = Regex("[A-Za-z0-9_]{1,128}")
+        private val PACKAGE_NAME = Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+")
+
+        private fun isValidPackage(name: String) = name.length <= 255 && PACKAGE_NAME.matches(name)
     }
 }
 

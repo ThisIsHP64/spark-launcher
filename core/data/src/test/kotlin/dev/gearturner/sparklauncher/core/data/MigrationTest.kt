@@ -63,6 +63,25 @@ class MigrationTest {
         }
     }
 
+    @Test
+    fun version3OverridesSurviveMigrationTo4() {
+        helper.createDatabase(DB_NAME, 3).apply {
+            execSQL(
+                "INSERT INTO app_overrides (package_name, class_name, user_serial, hidden, custom_label) " +
+                    "VALUES ('com.bank', 'com.bank.Main', 0, 1, 'Money')",
+            )
+            close()
+        }
+        val migrated = helper.runMigrationsAndValidate(DB_NAME, 4, true)
+        migrated.query("SELECT hidden, custom_label, icon_pack, icon_drawable FROM app_overrides").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+            assertEquals("Money", cursor.getString(1))
+            assertTrue(cursor.isNull(2))
+            assertTrue(cursor.isNull(3))
+        }
+    }
+
     private companion object {
         const val DB_NAME = "migration-test"
     }

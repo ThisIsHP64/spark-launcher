@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import dev.gearturner.sparklauncher.core.data.db.SparkDatabase
 import dev.gearturner.sparklauncher.core.model.AppKey
+import dev.gearturner.sparklauncher.core.model.CustomIcon
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -65,5 +66,15 @@ class AppOverridesRepositoryTest {
         repository.setLabel(key, "Post")
         assertEquals("Post", repository.overrides.first().labelFor(key, "Mail"))
         assertNull(repository.overrides.first()[AppKey("other", "x", 0)])
+    }
+
+    @Test
+    fun customIconsAreStoredValidatedAndCleared() = runTest {
+        repository.setIcon(key, CustomIcon("com.pack.icons", "maps_round"))
+        assertEquals(CustomIcon("com.pack.icons", "maps_round"), repository.overrides.first().getValue(key).customIcon)
+        repository.setIcon(key, CustomIcon("com.pack.icons", "../../evil"))
+        assertTrue(repository.overrides.first().isEmpty())
+        repository.setIcon(key, CustomIcon("not a package", "maps"))
+        assertTrue(repository.overrides.first().isEmpty())
     }
 }

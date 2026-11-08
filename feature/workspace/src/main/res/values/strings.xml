@@ -3,6 +3,7 @@
     <string name="workspace_remove">Remove</string>
     <string name="workspace_app_info">App info</string>
     <string name="workspace_rename">Rename</string>
+    <string name="workspace_change_icon">Change icon</string>
     <string name="workspace_remove_folder">Remove folder and its apps</string>
     <string name="workspace_folder_default_name">Folder</string>
     <string name="workspace_drop_refused">That spot is taken</string>

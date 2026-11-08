@@ -10,4 +10,6 @@ data class AppOverrideEntity(
     @ColumnInfo(name = "user_serial") val userSerial: Long,
     val hidden: Boolean = false,
     @ColumnInfo(name = "custom_label") val customLabel: String? = null,
+    @ColumnInfo(name = "icon_pack") val iconPack: String? = null,
+    @ColumnInfo(name = "icon_drawable") val iconDrawable: String? = null,
 )

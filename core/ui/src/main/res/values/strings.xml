@@ -7,4 +7,9 @@
     <string name="ui_cancel">Cancel</string>
     <string name="ui_pin_shortcut">Add %1$s to home screen</string>
     <string name="ui_shortcut_disabled">%1$s is unavailable</string>
+    <string name="ui_icon_picker_title">Icon for %1$s</string>
+    <string name="ui_icon_picker_back">Back to icon packs</string>
+    <string name="ui_icon_picker_reset">Reset</string>
+    <string name="ui_icon_picker_no_packs">No icon packs installed. Icon packs from app stores that support Nova or ADW work here.</string>
+    <string name="ui_icon_picker_search">Search icons</string>
 </resources>

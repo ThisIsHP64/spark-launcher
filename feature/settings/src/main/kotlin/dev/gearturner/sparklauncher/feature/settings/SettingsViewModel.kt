@@ -5,10 +5,13 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gearturner.sparklauncher.core.apps.AppsRepository
 import dev.gearturner.sparklauncher.core.data.SettingsRepository
+import dev.gearturner.sparklauncher.core.icons.IconPackInfo
+import dev.gearturner.sparklauncher.core.icons.IconPackRepository
 import dev.gearturner.sparklauncher.core.model.AppKey
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
 import java.text.Collator
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
@@ -20,7 +23,17 @@ import kotlinx.coroutines.launch
 class SettingsViewModel @Inject constructor(
     private val repository: SettingsRepository,
     apps: AppsRepository,
+    private val iconPacks: IconPackRepository,
 ) : ViewModel() {
+
+    private val _packs = MutableStateFlow<List<IconPackInfo>?>(null)
+
+    /** null while the installed packs are being listed */
+    val packs: StateFlow<List<IconPackInfo>?> = _packs
+
+    init {
+        viewModelScope.launch { _packs.value = iconPacks.installedPacks() }
+    }
 
     val settings: StateFlow<LauncherSettings?> = repository.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)

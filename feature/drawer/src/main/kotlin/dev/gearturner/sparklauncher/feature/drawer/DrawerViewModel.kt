@@ -16,6 +16,9 @@ import dev.gearturner.sparklauncher.core.model.AppInfo
 import dev.gearturner.sparklauncher.core.model.AppKey
 import dev.gearturner.sparklauncher.core.model.AppOverride
 import dev.gearturner.sparklauncher.core.model.AppShortcut
+import dev.gearturner.sparklauncher.core.icons.IconPackInfo
+import dev.gearturner.sparklauncher.core.icons.IconPackRepository
+import dev.gearturner.sparklauncher.core.model.CustomIcon
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
 import dev.gearturner.sparklauncher.feature.widgets.WidgetRepository
 import javax.inject.Inject
@@ -38,6 +41,7 @@ data class DrawerEntry(
     val app: AppInfo,
     val hidden: Boolean,
     val renamed: Boolean,
+    val customIcon: Boolean = false,
 )
 
 data class DrawerUiState(
@@ -60,6 +64,7 @@ class DrawerViewModel @Inject constructor(
     private val workspace: WorkspaceRepository,
     private val settingsRepository: SettingsRepository,
     widgets: WidgetRepository,
+    private val iconPacks: IconPackRepository,
 ) : ViewModel() {
 
     private val query = MutableStateFlow("")
@@ -132,6 +137,17 @@ class DrawerViewModel @Inject constructor(
 
     fun canUninstall(app: AppInfo): Boolean = apps.canUninstall(app.key)
 
+    suspend fun iconPacks(): List<IconPackInfo> = iconPacks.installedPacks()
+
+    /** change icon is offered only when it can lead somewhere: a pack to pick from, or an icon to reset */
+    fun canChangeIcon(entry: DrawerEntry): Boolean = iconPacks.packs.value.isNotEmpty() || entry.customIcon
+
+    suspend fun packIconNames(pack: String): List<String> = iconPacks.drawableNames(pack)
+
+    fun setCustomIcon(app: AppInfo, icon: CustomIcon?) {
+        viewModelScope.launch { overrides.setIcon(app.key, icon) }
+    }
+
     fun hasWidgets(app: AppInfo): Boolean = widgetPackages.value.contains(app.key.packageName to app.key.userSerial)
 
     fun uninstall(app: AppInfo) {
@@ -147,6 +163,7 @@ private fun AppInfo.toEntry(override: AppOverride?) = DrawerEntry(
     app = this,
     hidden = override?.hidden == true,
     renamed = override?.customLabel != null,
+    customIcon = override?.customIcon != null,
 )
 
 /**

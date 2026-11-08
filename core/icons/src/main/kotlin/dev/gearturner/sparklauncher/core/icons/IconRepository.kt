@@ -12,7 +12,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.gearturner.sparklauncher.core.apps.AppsRepository
 import dev.gearturner.sparklauncher.core.apps.ShortcutsRepository
 import dev.gearturner.sparklauncher.core.apps.di.ApplicationScope
+import dev.gearturner.sparklauncher.core.data.AppOverridesRepository
 import dev.gearturner.sparklauncher.core.model.AppKey
+import dev.gearturner.sparklauncher.core.model.AppOverride
 import dev.gearturner.sparklauncher.core.model.IconSource
 import dev.gearturner.sparklauncher.core.model.IconStyle
 import javax.inject.Inject
@@ -45,8 +47,13 @@ class IconRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val apps: AppsRepository,
     private val shortcuts: ShortcutsRepository,
+    private val iconPacks: IconPackRepository,
+    overridesRepository: AppOverridesRepository,
     @ApplicationScope scope: CoroutineScope,
 ) {
+    @Volatile
+    private var overrides: Map<AppKey, AppOverride> = emptyMap()
+
     // an eighth of the heap comfortably holds a few hundred icons at xxhdpi
     private val cache = object : LruCache<IconRequest, Bitmap>((Runtime.getRuntime().maxMemory() / 8).toInt()) {
         override fun sizeOf(key: IconRequest, value: Bitmap): Int = value.allocationByteCount
@@ -60,8 +67,22 @@ class IconRepository @Inject constructor(
     init {
         scope.launch {
             apps.packageChanges.collect { packages ->
-                cache.snapshot().keys.filter { it.packageName in packages }.forEach { cache.remove(it) }
+                // an updated icon pack changes every icon drawn from it, not just its own
+                packages.forEach(iconPacks::forget)
+                cache.snapshot().keys
+                    .filter { it.packageName in packages || it.style.iconPack in packages }
+                    .forEach { cache.remove(it) }
                 _generation.update { it + 1 }
+            }
+        }
+        scope.launch {
+            overridesRepository.overrides.collect { next ->
+                val changed = (next.keys + overrides.keys).filter { next[it]?.customIcon != overrides[it]?.customIcon }.toSet()
+                overrides = next
+                if (changed.isNotEmpty()) {
+                    cache.snapshot().keys.filter { (it.source as? IconSource.App)?.key in changed }.forEach { cache.remove(it) }
+                    _generation.update { it + 1 }
+                }
             }
         }
         // apps can swap a shortcut's icon without any package change, so shortcut bitmaps refresh too
@@ -86,16 +107,65 @@ class IconRepository @Inject constructor(
         return bitmap
     }
 
-    private suspend fun renderApp(key: AppKey, request: IconRequest): Bitmap? = withContext(Dispatchers.IO) {
-        val info = apps.activityInfo(key) ?: return@withContext null
-        try {
-            val drawable = info.getIcon(density()) ?: return@withContext null
-            val bitmap = IconRenderer.render(drawable, request.sizePx, request.style)
-            if (info.user != Process.myUserHandle()) applyProfileBadge(bitmap, info.user) else bitmap
-        } catch (e: RuntimeException) {
-            // a malformed icon resource in one app should only cost that app its icon
-            Log.w(TAG, "icon render failed for ${key.packageName}", e)
-            null
+    /**
+     * picks the icon in order: the user's pick for this app, then the chosen pack's icon, then
+     * the pack's frame around the app's own icon, then the app's icon, themed if enabled
+     */
+    private suspend fun renderApp(key: AppKey, request: IconRequest): Bitmap? {
+        val info = apps.activityInfo(key) ?: return null
+        val density = density()
+        val style = request.style
+        val component = "${key.packageName}/${key.className}"
+        val packIcon = overrides[key]?.customIcon?.let { iconPacks.drawable(it.packPackage, it.drawableName, density) }
+            ?: style.iconPack?.let { iconPacks.iconFor(it, component, density) }
+        val frame = if (packIcon == null && !style.themed) style.iconPack?.let { packFrame(it, key, density) } else null
+        return withContext(Dispatchers.IO) {
+            try {
+                val bitmap = when {
+                    packIcon != null -> IconRenderer.renderPackIcon(packIcon, request.sizePx, style)
+                    else -> {
+                        val drawable = info.getIcon(density) ?: return@withContext null
+                        if (frame != null) {
+                            IconRenderer.renderWithPackFrame(drawable, request.sizePx, style, frame)
+                        } else {
+                            IconRenderer.render(drawable, request.sizePx, style)
+                        }
+                    }
+                }
+                if (info.user != Process.myUserHandle()) applyProfileBadge(bitmap, info.user) else bitmap
+            } catch (e: RuntimeException) {
+                // a malformed icon resource in one app should only cost that app its icon
+                Log.w(TAG, "icon render failed for ${key.packageName}", e)
+                null
+            }
+        }
+    }
+
+    /** null when the pack has no styling, in which case uncovered apps keep their normal icon */
+    private suspend fun packFrame(pack: String, key: AppKey, density: Int): PackFrame? {
+        val filter = iconPacks.styling(pack) ?: return null
+        if (filter.iconBacks.isEmpty() && filter.iconUpon == null && filter.iconMask == null) return null
+        // packs with several backgrounds spread them across apps, stably per app
+        val back = filter.iconBacks.takeIf { it.isNotEmpty() }
+            ?.let { it[Math.floorMod(key.packageName.hashCode(), it.size)] }
+            ?.let { iconPacks.drawable(pack, it, density) }
+        return PackFrame(
+            back = back,
+            mask = filter.iconMask?.let { iconPacks.drawable(pack, it, density) },
+            upon = filter.iconUpon?.let { iconPacks.drawable(pack, it, density) },
+            scale = filter.scale,
+        )
+    }
+
+    /** one icon from a pack, for the manual icon picker */
+    suspend fun loadPackDrawable(pack: String, drawableName: String, sizePx: Int, style: IconStyle): Bitmap? {
+        val drawable = iconPacks.drawable(pack, drawableName, density()) ?: return null
+        return withContext(Dispatchers.Default) {
+            try {
+                IconRenderer.renderPackIcon(drawable, sizePx, style)
+            } catch (e: RuntimeException) {
+                null
+            }
         }
     }
 

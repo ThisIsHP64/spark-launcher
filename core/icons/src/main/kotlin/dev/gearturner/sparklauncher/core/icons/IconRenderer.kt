@@ -16,6 +16,9 @@ import android.os.Build
 import androidx.core.graphics.createBitmap
 import dev.gearturner.sparklauncher.core.model.IconStyle
 
+/** an icon pack's styling for apps it does not cover */
+internal class PackFrame(val back: Drawable?, val mask: Drawable?, val upon: Drawable?, val scale: Float)
+
 /** turns any app drawable into a uniformly shaped bitmap so the grid looks consistent */
 internal object IconRenderer {
 
@@ -83,6 +86,50 @@ internal object IconRenderer {
         } else {
             drawable.setBounds(0, 0, sizePx, sizePx)
             drawable.draw(canvas)
+        }
+        return bitmap
+    }
+
+    /**
+     * icon pack art is finished artwork, so only adaptive pack icons are shaped; anything else is
+     * drawn as the pack designed it, edge to edge, which is how nova shows pack icons too
+     */
+    fun renderPackIcon(drawable: Drawable, sizePx: Int, style: IconStyle): Bitmap {
+        if (drawable is AdaptiveIconDrawable) return render(drawable, sizePx, style.copy(themed = false))
+        val bitmap = createBitmap(sizePx, sizePx)
+        drawable.setBounds(0, 0, sizePx, sizePx)
+        drawable.draw(Canvas(bitmap))
+        return bitmap
+    }
+
+    /**
+     * styles an app the pack has no icon for with the pack's own frame: its background, the
+     * shrunken app icon with the pack's mask cut out of it, then the pack's overlay on top
+     */
+    fun renderWithPackFrame(app: Drawable, sizePx: Int, style: IconStyle, frame: PackFrame): Bitmap {
+        val bitmap = createBitmap(sizePx, sizePx)
+        val canvas = Canvas(bitmap)
+        val full = Rect(0, 0, sizePx, sizePx)
+        frame.back?.let {
+            it.bounds = full
+            it.draw(canvas)
+        }
+        val inner = (sizePx * frame.scale).toInt().coerceIn(1, sizePx)
+        val icon = render(app, inner, style.copy(themed = false))
+        val layer = createBitmap(sizePx, sizePx)
+        val layerCanvas = Canvas(layer)
+        val offset = (sizePx - inner) / 2f
+        layerCanvas.drawBitmap(icon, offset, offset, null)
+        frame.mask?.let { mask ->
+            val masked = createBitmap(sizePx, sizePx)
+            mask.bounds = full
+            mask.draw(Canvas(masked))
+            layerCanvas.drawBitmap(masked, 0f, 0f, Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT) })
+        }
+        canvas.drawBitmap(layer, 0f, 0f, null)
+        frame.upon?.let {
+            it.bounds = full
+            it.draw(canvas)
         }
         return bitmap
     }
