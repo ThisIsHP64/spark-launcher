@@ -1,5 +1,6 @@
 package dev.gearturner.sparklauncher.feature.workspace
 
+import dev.gearturner.sparklauncher.core.ui.DragPayload
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,6 +32,7 @@ import dev.gearturner.sparklauncher.core.icons.IconPackInfo
 import dev.gearturner.sparklauncher.core.icons.IconPackRepository
 import dev.gearturner.sparklauncher.core.model.CustomIcon
 import dev.gearturner.sparklauncher.core.model.Span
+import dev.gearturner.sparklauncher.core.model.SUBGRID
 import dev.gearturner.sparklauncher.core.model.WidgetOptions
 import dev.gearturner.sparklauncher.core.model.WorkspaceItem
 import dev.gearturner.sparklauncher.feature.widgets.WidgetBinder
@@ -179,6 +181,18 @@ class HomeViewModel @Inject constructor(
 
     fun canUninstall(cell: HomeCell): Boolean = cell.shortcut == null && apps.canUninstall(cell.app.key)
 
+    /** places a dragged app inside an open folder; a refused drop is reported like any other */
+    fun dropIntoFolder(dragged: Dragged, folderId: Long, rank: Int, onSettled: () -> Unit) {
+        viewModelScope.launch {
+            if (!workspace.dropIntoFolder(dragged, folderId, rank)) events.send(HomeEvent.DropRefused)
+            onSettled()
+        }
+    }
+
+    fun reorderInFolder(itemId: Long, toRank: Int) {
+        viewModelScope.launch { workspace.reorderInFolder(itemId, toRank) }
+    }
+
     fun rename(itemId: Long, title: String?) {
         viewModelScope.launch { workspace.rename(itemId, title) }
     }
@@ -223,6 +237,13 @@ class HomeViewModel @Inject constructor(
     /** looks the dragged item up by id; the repository re-reads it inside the transaction anyway */
     fun existing(itemId: Long): WorkspaceItem? = latestItems.firstOrNull { it.id == itemId }
 
+    /** whether a drag carries one app or shortcut, the only things that can join a folder */
+    fun isSingleIcon(payload: DragPayload): Boolean = when (payload) {
+        is DragPayload.NewApp -> true
+        is DragPayload.NewWidget -> false
+        is DragPayload.Existing -> existing(payload.itemId)?.type.let { it == ItemType.APP || it == ItemType.SHORTCUT }
+    }
+
     /** spark becoming the default home app is the moment shortcut access appears */
     fun onResume() {
         shortcuts.refresh()
@@ -248,6 +269,7 @@ class HomeViewModel @Inject constructor(
     /**
      * places a widget from the picker. the spot is checked before the system is asked to bind, so
      * the user never grants access or fills in a setup screen for a widget that cannot land.
+     * [span] is in half cells, like every home placement.
      */
     fun placeWidget(providerKey: AppKey, span: Span, target: DropTarget, binder: WidgetBinder?, onSettled: () -> Unit) {
         viewModelScope.launch {
@@ -279,10 +301,11 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** tapping a widget in the picker puts it in the first spot it fits */
-    fun addWidget(providerKey: AppKey, span: Span, binder: WidgetBinder?) {
+    /** tapping a widget in the picker puts it in the first spot it fits; [cells] is its size in whole cells */
+    fun addWidget(providerKey: AppKey, cells: Span, binder: WidgetBinder?) {
         viewModelScope.launch {
             val settings = settingsRepository.current()
+            val span = Span(cells.x * SUBGRID, cells.y * SUBGRID)
             val spot = workspace.firstFreeDesktopSpot(span.x, span.y, settings.homeColumns, settings.homeRows)
             if (spot == null) {
                 events.send(HomeEvent.ShortcutAdded(AddResult.NoSpace))
@@ -372,7 +395,8 @@ internal fun buildState(
         return FolderTile(id, customTitle, placement, children)
     }
     val desktop = items.filter { it.container == Container.Desktop }
-        .filter { it.placement.cellX < settings.homeColumns && it.placement.cellY < settings.homeRows }
+        // placements are in half cells, so the grid is measured in those too
+        .filter { it.placement.cellX < settings.homeColumns * SUBGRID && it.placement.cellY < settings.homeRows * SUBGRID }
         .mapNotNull { it.toTile() }
     val pageCount = (desktop.maxOfOrNull { it.placement.page } ?: 0) + 1
     val pages = List(pageCount) { page -> desktop.filter { it.placement.page == page } }

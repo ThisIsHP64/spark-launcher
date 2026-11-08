@@ -174,7 +174,14 @@ private fun LazyListScope.lookPage(settings: LauncherSettings, viewModel: Settin
     item { ThemeModeRow(settings.themeMode) { mode -> viewModel.update { it.copy(themeMode = mode) } } }
     item { ColorSourceRow(settings.colorSource) { source -> viewModel.update { it.copy(colorSource = source) } } }
     if (settings.colorSource == ColorSource.CUSTOM) {
-        item { SeedColorPicker(settings.seedColor) { color -> viewModel.update { it.copy(seedColor = color) } } }
+        item {
+            SeedColorPicker(
+                selected = settings.seedColor,
+                onSelect = { color -> viewModel.update { it.copy(seedColor = color) } },
+                onPreview = viewModel::previewSeed,
+                onCommit = viewModel::commitSeed,
+            )
+        }
     }
     item { PaletteStyleRow(settings.paletteStyle) { style -> viewModel.update { it.copy(paletteStyle = style) } } }
     item { PalettePreview() }
@@ -229,6 +236,13 @@ private fun LazyListScope.homePage(settings: LauncherSettings, viewModel: Settin
             display = { if (it == 0) stringResource(R.string.settings_dock_hidden) else it.toString() },
         ) { value -> viewModel.updateGrid { it.copy(dockSlots = value) } }
     }
+    item {
+        SwitchRow(
+            title = stringResource(R.string.settings_subgrid),
+            summary = stringResource(R.string.settings_subgrid_summary),
+            checked = settings.subgridPositioning,
+        ) { on -> viewModel.update { it.copy(subgridPositioning = on) } }
+    }
     item { SectionHeader(stringResource(R.string.settings_section_icons)) }
     item { IconScaleSlider(settings.iconScale) { scale -> viewModel.update { it.copy(iconScale = scale) } } }
     item {
@@ -238,6 +252,14 @@ private fun LazyListScope.homePage(settings: LauncherSettings, viewModel: Settin
             checked = settings.showHomeLabels,
         ) { on -> viewModel.update { it.copy(showHomeLabels = on) } }
     }
+    item {
+        SwitchRow(
+            title = stringResource(R.string.settings_dots),
+            summary = stringResource(R.string.settings_dots_summary),
+            checked = settings.notificationDots,
+        ) { on -> viewModel.update { it.copy(notificationDots = on) } }
+    }
+    item { NotificationAccessCard(settings, viewModel) }
     item {
         SegmentedSetting(
             label = stringResource(R.string.settings_label_lines),
@@ -437,7 +459,7 @@ private fun ColorSourceRow(selected: ColorSource, onSelect: (ColorSource) -> Uni
 
 /** preset swatches for a quick pick, plus a hue slider for anything in between */
 @Composable
-private fun SeedColorPicker(selected: Int, onSelect: (Int) -> Unit) {
+private fun SeedColorPicker(selected: Int, onSelect: (Int) -> Unit, onPreview: (Int) -> Unit, onCommit: (Int) -> Unit) {
     SettingLabel(stringResource(R.string.settings_custom_color))
     Row(
         modifier = Modifier
@@ -472,13 +494,19 @@ private fun SeedColorPicker(selected: Int, onSelect: (Int) -> Unit) {
     )
     Slider(
         value = hue,
-        onValueChange = { hue = it },
-        // the palette is rebuilt once the finger lifts, not on every frame of the drag
-        onValueChangeFinished = { onSelect(Color.hsv(hue, 0.55f, 0.7f).toArgb()) },
+        onValueChange = {
+            hue = it
+            // the theme follows the slider live; only the final hue is written to storage
+            onPreview(seedFromHue(it))
+        },
+        onValueChangeFinished = { onCommit(seedFromHue(hue)) },
         valueRange = 0f..359f,
         modifier = Modifier.padding(horizontal = 24.dp),
     )
 }
+
+/** the same saturation and value for every hue, so the slider only ever changes the color family */
+private fun seedFromHue(hue: Float): Int = Color.hsv(hue, 0.55f, 0.7f).toArgb()
 
 private fun hueOf(argb: Int): Float {
     val hsv = FloatArray(3)

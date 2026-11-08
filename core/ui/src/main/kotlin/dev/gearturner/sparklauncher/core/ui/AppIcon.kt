@@ -1,5 +1,16 @@
 package dev.gearturner.sparklauncher.core.ui
 
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.stateDescription
+import dev.gearturner.sparklauncher.core.apps.DotKey
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -9,7 +20,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,7 +48,6 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -97,9 +106,11 @@ fun AppIcon(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
     dragHandler: IconDragHandler? = null,
+    showDot: Boolean = false,
 ) {
     val bitmap = rememberIcon(source, iconSize)
     SideEffect { anchor.icon = bitmap }
+    val accent = remember(bitmap) { bitmap?.accentColor() }
     LauncherTile(
         label = label,
         iconSize = iconSize,
@@ -109,6 +120,7 @@ fun AppIcon(
         onLongClick = onLongClick,
         modifier = modifier,
         dragHandler = dragHandler,
+        dotColor = if (showDot) accent ?: MaterialTheme.colorScheme.primary else null,
     ) {
         if (bitmap != null) {
             Image(bitmap = bitmap, contentDescription = null, modifier = Modifier.size(iconSize))
@@ -140,8 +152,10 @@ fun LauncherTile(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
     dragHandler: IconDragHandler? = null,
+    dotColor: Color? = null,
     icon: @Composable () -> Unit,
 ) {
+    val hasNotifications = stringResource(R.string.ui_has_notifications)
     val haptics = LocalHapticFeedback.current
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     Column(
@@ -158,6 +172,7 @@ fun LauncherTile(
             // the custom detector replaces clickable, so tap and long press are restated for talkback
             .semantics {
                 role = Role.Button
+                if (dotColor != null) stateDescription = hasNotifications
                 onClick(label = label) {
                     onClick()
                     true
@@ -180,28 +195,92 @@ fun LauncherTile(
             contentAlignment = Alignment.Center,
         ) {
             icon()
+            NotificationDot(dotColor, iconSize, Modifier.align(Alignment.TopEnd))
         }
         if (labelStyle != LabelStyle.Hidden) {
             Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = label,
-                style = labelTextStyle(labelStyle),
-                maxLines = LocalLabelLines.current,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-            )
+            // the label travels with the dragged copy, so it leaves the source spot along with the icon
+            Box(modifier = Modifier.graphicsLayer { alpha = if (anchor.hidden) 0f else 1f }) {
+                IconLabel(label, labelStyle)
+            }
         }
     }
 }
 
+/**
+ * a label on the wallpaper is drawn twice, the way the pixel launcher does it: a wide, soft ambient
+ * shadow under a tight key shadow. one shadow alone either smears or vanishes on bright wallpapers.
+ */
 @Composable
-private fun labelTextStyle(style: LabelStyle): TextStyle {
+internal fun IconLabel(label: String, style: LabelStyle) {
     val base = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)
-    return when (style) {
-        LabelStyle.OnWallpaper -> base.copy(
-            color = Color.White,
-            shadow = Shadow(color = Color.Black.copy(alpha = 0.55f), offset = Offset(0f, 1f), blurRadius = 4f),
+    val lines = LocalLabelLines.current
+    if (style != LabelStyle.OnWallpaper) {
+        Text(
+            text = label,
+            style = base.copy(color = MaterialTheme.colorScheme.onSurface),
+            maxLines = lines,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
         )
-        LabelStyle.OnSurface, LabelStyle.Hidden -> base.copy(color = MaterialTheme.colorScheme.onSurface)
+        return
+    }
+    val density = LocalDensity.current
+    val ambient = with(density) {
+        Shadow(color = Color.Black.copy(alpha = AMBIENT_SHADOW_ALPHA), offset = Offset.Zero, blurRadius = 4.dp.toPx())
+    }
+    val key = with(density) {
+        Shadow(color = Color.Black.copy(alpha = KEY_SHADOW_ALPHA), offset = Offset(0f, 0.75.dp.toPx()), blurRadius = 1.5.dp.toPx())
+    }
+    Box(contentAlignment = Alignment.Center) {
+        Text(
+            text = label,
+            // both layers share the weight so their glyphs sit exactly on top of each other
+            style = base.copy(color = Color.White, shadow = ambient, fontWeight = FontWeight.Medium),
+            maxLines = lines,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = label,
+            style = base.copy(color = Color.White, shadow = key, fontWeight = FontWeight.Medium),
+            maxLines = lines,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
     }
 }
+
+/**
+ * the pixel style dot at an icon's top right corner. it keeps its last color while fading out, so
+ * it does not flash to another color as it disappears.
+ */
+@Composable
+private fun NotificationDot(color: Color?, iconSize: Dp, modifier: Modifier) {
+    var lastColor by remember { mutableStateOf(color ?: Color.Transparent) }
+    if (color != null) lastColor = color
+    AnimatedVisibility(
+        visible = color != null,
+        enter = fadeIn() + scaleIn(),
+        exit = fadeOut() + scaleOut(),
+        modifier = modifier,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(iconSize * DOT_FRACTION)
+                .graphicsLayer {
+                    shadowElevation = 2.dp.toPx()
+                    shape = CircleShape
+                    clip = true
+                }
+                .background(lastColor, CircleShape),
+        )
+    }
+}
+
+/** apps with a notification dot, by package and profile; empty while dots are off or access is missing */
+val LocalNotificationDots = compositionLocalOf<Set<DotKey>> { emptySet() }
+
+private const val DOT_FRACTION = 0.22f
+private const val AMBIENT_SHADOW_ALPHA = 0.6f
+private const val KEY_SHADOW_ALPHA = 0.85f

@@ -56,6 +56,13 @@
     <string name="settings_decrease">Fewer %1$s</string>
     <string name="settings_increase">More %1$s</string>
     <string name="settings_icon_size">Icon size: %1$d%%</string>
+    <string name="settings_subgrid">Subgrid positioning</string>
+    <string name="settings_subgrid_summary">Place icons and widgets between grid cells</string>
+    <string name="settings_dots">Notification dots</string>
+    <string name="settings_dots_summary">Show a dot on apps with notifications</string>
+    <string name="settings_dots_access_title">Allow notification access</string>
+    <string name="settings_dots_access_body">Dots need notification access. Spark only checks which apps have notifications; it never reads or keeps what they say.</string>
+    <string name="settings_dots_access_open">Open settings</string>
     <string name="settings_home_labels">Labels on home</string>
     <string name="settings_home_labels_summary">Show app names under home screen icons</string>
     <string name="settings_label_lines">Label lines</string>

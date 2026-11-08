@@ -1,5 +1,15 @@
 package dev.gearturner.sparklauncher.feature.workspace
 
+import dev.gearturner.sparklauncher.core.apps.DotKey
+import dev.gearturner.sparklauncher.core.apps.dotKey
+import dev.gearturner.sparklauncher.core.ui.LocalNotificationDots
+import androidx.compose.material3.MaterialTheme
+
+import dev.gearturner.sparklauncher.core.model.SUBGRID
+
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -66,7 +76,7 @@ internal fun PageGrid(
     iconSize: Dp,
     showLabels: Boolean,
     viewModel: HomeViewModel,
-    onOpenFolder: (Long) -> Unit,
+    onOpenFolder: (OpenFolder) -> Unit,
     onResizeWidget: (WidgetTile) -> Unit,
     onEmptyLongPress: (Offset) -> Unit,
     onEmptyDoubleTap: (() -> Unit)?,
@@ -91,8 +101,9 @@ internal fun PageGrid(
                 )
             },
     ) {
-        val cellWidth = maxWidth / columns
-        val cellHeight = maxHeight / rows
+        // placements are in half cells, so offsets and sizes are measured in those
+        val cellWidth = maxWidth / (columns * SUBGRID)
+        val cellHeight = maxHeight / (rows * SUBGRID)
         tiles.forEach { tile ->
             HomeTileView(
                 tile = tile,
@@ -117,7 +128,7 @@ internal fun Dock(
     iconSize: Dp,
     viewModel: HomeViewModel,
     onBounds: (Rect) -> Unit,
-    onOpenFolder: (Long) -> Unit,
+    onOpenFolder: (OpenFolder) -> Unit,
 ) {
     BoxWithConstraints(
         modifier = Modifier
@@ -152,16 +163,28 @@ private fun HomeTileView(
     iconSize: Dp,
     labelStyle: LabelStyle,
     viewModel: HomeViewModel,
-    onOpenFolder: (Long) -> Unit,
+    onOpenFolder: (OpenFolder) -> Unit,
     onResizeWidget: (WidgetTile) -> Unit,
     modifier: Modifier,
 ) {
+    // an app or folder that a dragged app would merge into grows, so it reads as a drop target
+    val targeted = LocalDropHover.current == tile.itemId
+    val scale by animateFloatAsState(if (targeted) DROP_TARGET_SCALE else 1f, label = "drop_target")
+    val lifted = modifier.graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
     when (tile) {
-        is HomeCell -> HomeItem(tile, registryPage, iconSize, labelStyle, DragOrigin.Home, viewModel, modifier)
-        is FolderTile -> FolderTileView(tile, iconSize, labelStyle, viewModel, onOpenFolder, modifier)
+        is HomeCell -> HomeItem(tile, registryPage, iconSize, labelStyle, DragOrigin.Home, viewModel, lifted)
+        is FolderTile -> FolderTileView(tile, iconSize, labelStyle, viewModel, onOpenFolder, lifted)
         is WidgetTile -> WidgetTileView(tile, viewModel, onResizeWidget, modifier)
     }
 }
+
+/** the item a dragged app is hovering over and would join, or null */
+internal val LocalDropHover = compositionLocalOf<Long?> { null }
+
+private const val DROP_TARGET_SCALE = 1.15f
 
 /**
  * an app or shortcut, on home, in the dock or inside an open folder. [registryPage] is null inside
@@ -186,8 +209,8 @@ internal fun HomeItem(
     val actions = homeItemActions(cell, viewModel, anchor, onRename = { renaming = true }, onChangeIcon = { changingIcon = true })
     val controller = LocalDragController.current
     val payload = DragPayload.Existing(cell.itemId, cell.app.key, viewModel.canUninstall(cell))
-    val dragHandler = remember(controller, payload, origin) {
-        controller?.let { itemDragHandler(it, anchor, payload, origin, closeMenu = { menuOpen = false }) }
+    val dragHandler = remember(controller, payload, origin, cell.title) {
+        controller?.let { itemDragHandler(it, anchor, payload, origin, closeMenu = { menuOpen = false }, label = cell.title) }
     }
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         AppIcon(
@@ -199,10 +222,12 @@ internal fun HomeItem(
             onClick = { viewModel.launch(cell, anchor.request()) },
             onLongClick = { menuOpen = true },
             dragHandler = dragHandler,
+            showDot = cell.hasDot(LocalNotificationDots.current),
         )
         ItemMenu(
             expanded = menuOpen,
             onDismiss = { menuOpen = false },
+            iconBounds = anchor::boundsInRoot,
             owner = cell.app.key,
             loadShortcuts = { viewModel.menuShortcuts(cell) },
             onShortcutClick = { viewModel.launchShortcut(it, anchor.request()) },
@@ -246,18 +271,24 @@ private fun FolderTileView(
     iconSize: Dp,
     labelStyle: LabelStyle,
     viewModel: HomeViewModel,
-    onOpenFolder: (Long) -> Unit,
+    onOpenFolder: (OpenFolder) -> Unit,
     modifier: Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    var renaming by remember { mutableStateOf(false) }
     val anchor = rememberLaunchAnchor()
     val controller = LocalDragController.current
     val payload = DragPayload.Existing(folder.itemId, app = null, canUninstall = false)
-    val dragHandler = remember(controller, payload) {
-        controller?.let { itemDragHandler(it, anchor, payload, DragOrigin.Home, closeMenu = { menuOpen = false }) }
-    }
+    val currentFolder by rememberUpdatedState(folder)
     val name = folder.name ?: stringResource(R.string.workspace_folder_default_name)
+    val dots = LocalNotificationDots.current
+    val dragHandler = remember(controller, payload, iconSize, name) {
+        controller?.let {
+            // the lifted copy is the folder's own preview, so it still looks like this folder mid drag
+            itemDragHandler(it, anchor, payload, DragOrigin.Home, closeMenu = { menuOpen = false }, label = name) {
+                FolderPreview(currentFolder, iconSize)
+            }
+        }
+    }
     val rename = stringResource(R.string.workspace_rename)
     val remove = stringResource(R.string.workspace_remove_folder)
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -266,33 +297,29 @@ private fun FolderTileView(
             iconSize = iconSize,
             labelStyle = labelStyle,
             anchor = anchor,
-            onClick = { onOpenFolder(folder.itemId) },
+            onClick = { onOpenFolder(OpenFolder(folder.itemId, anchor.boundsInRoot())) },
             onLongClick = { menuOpen = true },
             dragHandler = dragHandler,
+            // a folder holds many apps with different colors, so its dot takes the theme color instead
+            dotColor = MaterialTheme.colorScheme.primary.takeIf { folder.children.any { it.hasDot(dots) } },
         ) {
             FolderPreview(folder, iconSize)
         }
         ItemMenu(
             expanded = menuOpen,
             onDismiss = { menuOpen = false },
+            iconBounds = anchor::boundsInRoot,
             actions = listOf(
-                MenuAction(rename, Icons.Outlined.Edit) { renaming = true },
+                // renaming happens in the open folder's title, so the menu opens it ready to type
+                MenuAction(rename, Icons.Outlined.Edit) { onOpenFolder(OpenFolder(folder.itemId, anchor.boundsInRoot(), editName = true)) },
                 MenuAction(remove, Icons.Outlined.Close, MenuGroup.Destructive) { viewModel.remove(folder.itemId) },
             ),
         )
     }
-    if (renaming) {
-        RenameDialog(
-            currentName = folder.name.orEmpty(),
-            canReset = folder.name != null,
-            onConfirm = { title ->
-                renaming = false
-                viewModel.rename(folder.itemId, title)
-            },
-            onDismiss = { renaming = false },
-        )
-    }
 }
+
+/** apps carry their notification dot; a pinned shortcut is not where the app's notifications live */
+private fun HomeCell.hasDot(dots: Set<DotKey>): Boolean = shortcut == null && app.key.dotKey in dots
 
 /**
  * turns a long press drag into a shared drag session. the source icon hides while its copy
@@ -304,6 +331,8 @@ internal fun itemDragHandler(
     payload: DragPayload,
     origin: DragOrigin,
     closeMenu: () -> Unit,
+    label: String? = null,
+    preview: (@Composable () -> Unit)? = null,
 ): IconDragHandler = object : IconDragHandler {
     override fun onDragStart(fingerInRoot: Offset, iconBoundsInRoot: Rect) {
         closeMenu()
@@ -316,6 +345,8 @@ internal fun itemDragHandler(
                 sizePx = iconBoundsInRoot.size,
                 grabOffset = fingerInRoot - iconBoundsInRoot.topLeft,
                 fingerInRoot = fingerInRoot,
+                preview = preview,
+                label = label,
             ),
         )
     }

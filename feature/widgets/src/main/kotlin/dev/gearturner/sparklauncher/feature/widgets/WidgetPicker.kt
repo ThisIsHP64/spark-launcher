@@ -1,5 +1,6 @@
 package dev.gearturner.sparklauncher.feature.widgets
 
+import androidx.compose.animation.core.Animatable
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -89,8 +90,17 @@ fun WidgetPicker(
 ) {
     val dragController = LocalDragController.current
     val draggingFromPicker = dragController?.session?.origin == DragOrigin.WidgetPicker
-    // a widget being dragged out still belongs to its card, so the picker stays composed but hidden
-    if (!controller.isOpen && !draggingFromPicker) return
+    // the sheet slides up from the bottom on open and back down on close with the expressive springs
+    val progress = remember { Animatable(0f) }
+    val motion = MaterialTheme.motionScheme
+    LaunchedEffect(controller.isOpen) {
+        if (controller.isOpen) progress.animateTo(1f, motion.defaultSpatialSpec()) else progress.animateTo(0f, motion.fastSpatialSpec())
+    }
+    // a widget lifted out of the picker closes it at once, so the sheet never slides past the drag
+    LaunchedEffect(draggingFromPicker) { if (draggingFromPicker) progress.snapTo(0f) }
+    // a widget being dragged out still belongs to its card, so the picker stays composed but hidden;
+    // otherwise it stays composed only until its closing slide has finished
+    if (!controller.isOpen && !draggingFromPicker && progress.value == 0f) return
     val groups by viewModel.groups.collectAsStateWithLifecycle()
     val search = rememberTextFieldState()
     LaunchedEffect(controller.packageFilter) { viewModel.setPackageFilter(controller.packageFilter) }
@@ -102,7 +112,11 @@ fun WidgetPicker(
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = modifier
             .fillMaxSize()
-            .graphicsLayer { alpha = if (controller.isOpen) 1f else 0f },
+            .graphicsLayer {
+                // a spring overshoot past fully open would lift the sheet off the bottom edge
+                translationY = (1f - progress.value.coerceIn(0f, 1f)) * size.height
+                alpha = if (draggingFromPicker) 0f else 1f
+            },
     ) {
     Column(modifier = Modifier.statusBarsPadding()) {
         Row(

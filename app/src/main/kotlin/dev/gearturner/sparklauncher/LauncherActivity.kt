@@ -1,5 +1,8 @@
 package dev.gearturner.sparklauncher
 
+import dev.gearturner.sparklauncher.core.apps.NotificationDots
+import dev.gearturner.sparklauncher.core.ui.LocalNotificationDots
+
 import android.content.Intent
 import android.os.Bundle
 import android.os.UserManager
@@ -53,6 +56,9 @@ class LauncherActivity : ComponentActivity() {
     @Inject
     lateinit var appsRepository: AppsRepository
 
+    @Inject
+    lateinit var notificationDots: NotificationDots
+
     private lateinit var widgetBinder: WidgetBindFlow
     private lateinit var systemActions: SystemActions
     private lateinit var widgetViews: WidgetViews
@@ -92,6 +98,7 @@ class LauncherActivity : ComponentActivity() {
             // waiting for stored settings avoids drawing every icon twice, once in the wrong style
             val settings by settingsRepository.settings.collectAsStateWithLifecycle(initialValue = null)
             val loaded = settings ?: return@setContent
+            val dots by notificationDots.dots.collectAsStateWithLifecycle()
             SparkTheme(loaded) {
                 CompositionLocalProvider(
                     LocalIconRepository provides iconRepository,
@@ -100,6 +107,7 @@ class LauncherActivity : ComponentActivity() {
                     LocalWidgetViews provides widgetViews,
                     LocalLabelLines provides loaded.labelLines,
                     LocalGestureActions provides systemActions,
+                    LocalNotificationDots provides if (loaded.notificationDots) dots else emptySet(),
                 ) {
                     ProvideIconStyle(loaded) {
                         LauncherRoot(homePresses = homePressEvents, onOpenSettings = ::openSettings)

@@ -1,6 +1,7 @@
 package dev.gearturner.sparklauncher.core.data.di
 
 import android.content.Context
+import dev.gearturner.sparklauncher.core.data.db.MANUAL_MIGRATIONS
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
@@ -35,7 +36,9 @@ object DataModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): SparkDatabase =
-        Room.databaseBuilder(context, SparkDatabase::class.java, SparkDatabase.NAME).build()
+        Room.databaseBuilder(context, SparkDatabase::class.java, SparkDatabase.NAME)
+            .addMigrations(*MANUAL_MIGRATIONS)
+            .build()
 
     @Provides
     fun provideWorkspaceDao(database: SparkDatabase): WorkspaceDao = database.workspaceDao()

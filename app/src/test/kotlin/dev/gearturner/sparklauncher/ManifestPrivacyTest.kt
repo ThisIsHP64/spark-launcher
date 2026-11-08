@@ -48,6 +48,28 @@ class ManifestPrivacyTest {
     }
 
     @Test
+    fun notificationListenerCanOnlyBeBoundByTheSystem() {
+        findMergedManifests().forEach { manifest ->
+            val document = parse(manifest)
+            val services = document.getElementsByTagName("service")
+            val ours = (0 until services.length).map { services.item(it) }
+                .filter { it.attributes.getNamedItemNS(ANDROID_NS, "name")?.nodeValue?.endsWith("SparkNotificationListener") == true }
+            assertTrue("notification listener missing from ${manifest.path}", ours.size == 1)
+            val permission = ours.single().attributes.getNamedItemNS(ANDROID_NS, "permission")?.nodeValue
+            assertTrue("listener must require the system bind permission", permission == "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE")
+        }
+    }
+
+    @Test
+    fun noPermissionToPostOrReadNotificationsIsRequested() {
+        findMergedManifests().forEach { manifest ->
+            val requested = readRequestedPermissions(manifest)
+            assertFalse("android.permission.POST_NOTIFICATIONS" in requested)
+            assertFalse("android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" in requested)
+        }
+    }
+
+    @Test
     fun accessibilityServiceCannotReadTheScreen() {
         val config = File("src/main/res/xml/accessibility_service.xml")
         assertTrue("accessibility config not found", config.isFile)

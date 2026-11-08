@@ -17,12 +17,15 @@ import dev.gearturner.sparklauncher.core.model.reflowLayout
 import dev.gearturner.sparklauncher.core.model.applyDrop
 import dev.gearturner.sparklauncher.core.model.canResize
 import dev.gearturner.sparklauncher.core.model.diffLayout
+import dev.gearturner.sparklauncher.core.model.moveWithinFolder
+import dev.gearturner.sparklauncher.core.model.insertIntoFolder
 import dev.gearturner.sparklauncher.core.model.normalizeLayout
 import dev.gearturner.sparklauncher.core.model.planDrop
 import dev.gearturner.sparklauncher.core.model.ItemType
 import dev.gearturner.sparklauncher.core.model.ShortcutKey
 import dev.gearturner.sparklauncher.core.model.WorkspaceItem
 import dev.gearturner.sparklauncher.core.model.findFirstFreePlacement
+import dev.gearturner.sparklauncher.core.model.SUBGRID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -71,7 +74,7 @@ class WorkspaceRepository @Inject constructor(
             return@withLock AddResult.AlreadyOnHome
         }
         val desktop = existing.filter { it.container == Container.Desktop }.map { it.placement }
-        val placement = findFirstFreePlacement(columns, rows, desktop) ?: return@withLock AddResult.NoSpace
+        val placement = findFirstFreePlacement(columns, rows, desktop, SUBGRID, SUBGRID, SUBGRID) ?: return@withLock AddResult.NoSpace
         val item = WorkspaceItem(0, ItemType.APP, Container.Desktop, placement, app)
         val id = dao.insert(item.toEntity(layout.key))
         AddResult.Added(item.copy(id = id))
@@ -130,7 +133,7 @@ class WorkspaceRepository @Inject constructor(
                     )
                     is Dragged.NewApp, is Dragged.NewWidget -> dragged
                 }
-                val plan = planDrop(before, current, target, columns, rows, dockSlots)
+                val plan = planDrop(before, current, target, columns, rows, dockSlots, SUBGRID)
                 if (plan == DropPlan.NoChange || plan == DropPlan.Reject) return@withTransaction plan
                 var working = before
                 var folderId = 0L
@@ -144,16 +147,52 @@ class WorkspaceRepository @Inject constructor(
             }
         }
 
+    /**
+     * drops an app straight into an open folder at [rank]. a new app from the drawer is inserted as
+     * a row first, inside the same transaction, so it has an id to be ranked by.
+     */
+    suspend fun dropIntoFolder(dragged: Dragged, folderId: Long, rank: Int): Boolean = placementLock.withLock {
+        database.withTransaction {
+            val layout = active.current()
+            var before = loadAll(layout)
+            if (before.none { it.id == folderId && it.type == ItemType.FOLDER }) return@withTransaction false
+            val itemId = when (dragged) {
+                is Dragged.Existing -> before.firstOrNull { it.id == dragged.item.id }?.id ?: return@withTransaction false
+                is Dragged.NewApp -> {
+                    val end = before.count { it.container == Container.Folder(folderId) }
+                    val row = WorkspaceItem(0, ItemType.APP, Container.Folder(folderId), CellPlacement(0, end, 0), dragged.key)
+                    val id = dao.insert(row.toEntity(layout.key))
+                    before = before + row.copy(id = id)
+                    id
+                }
+                is Dragged.NewWidget -> return@withTransaction false
+            }
+            val after = insertIntoFolder(before, itemId, folderId, rank)
+            if (after.firstOrNull { it.id == itemId }?.container != Container.Folder(folderId)) return@withTransaction false
+            writeDiff(before, normalizeLayout(after), layout)
+            true
+        }
+    }
+
+    /** moves an app to a new position inside the folder it is already in */
+    suspend fun reorderInFolder(itemId: Long, toRank: Int) = placementLock.withLock {
+        database.withTransaction {
+            val layout = active.current()
+            val before = loadAll(layout)
+            writeDiff(before, moveWithinFolder(before, itemId, toRank), layout)
+        }
+    }
+
     /** answers whether a drop would be accepted, without writing, so a widget is only bound when it fits */
     suspend fun previewDrop(dragged: Dragged, target: DropTarget, columns: Int, rows: Int, dockSlots: Int): DropPlan =
-        placementLock.withLock { planDrop(loadAll(active.current()), dragged, target, columns, rows, dockSlots) }
+        placementLock.withLock { planDrop(loadAll(active.current()), dragged, target, columns, rows, dockSlots, SUBGRID) }
 
-    /** returns false when the new size would leave the grid or cover another item */
+    /** returns false when the new size would leave the grid or cover another item; [placement] is in half cells */
     suspend fun resize(itemId: Long, placement: CellPlacement, columns: Int, rows: Int): Boolean = placementLock.withLock {
         database.withTransaction {
             val layout = active.current()
             val before = loadAll(layout)
-            if (!canResize(before, itemId, placement, columns, rows)) return@withTransaction false
+            if (!canResize(before, itemId, placement, columns * SUBGRID, rows * SUBGRID)) return@withTransaction false
             val after = before.map { if (it.id == itemId) it.copy(placement = placement) else it }
             writeDiff(before, after, layout)
             true
@@ -169,12 +208,12 @@ class WorkspaceRepository @Inject constructor(
         }
     }
 
-    /** the first spot a block of cells fits on any page, adding a page when all are full */
+    /** the first spot a block fits on any page, adding a page when all are full; spans are in half cells */
     suspend fun firstFreeDesktopSpot(spanX: Int, spanY: Int, columns: Int, rows: Int): CellPlacement? =
         placementLock.withLock {
             // overlap widgets float above the grid, so they never block a spot
             val taken = loadAll(active.current()).filter { it.container == Container.Desktop && !it.overlaps }.map { it.placement }
-            findFirstFreePlacement(columns, rows, taken, spanX, spanY)
+            findFirstFreePlacement(columns, rows, taken, spanX, spanY, SUBGRID)
         }
 
     /** every widget id the layout still uses, for freeing ids orphaned by a crash mid placement */
@@ -188,7 +227,7 @@ class WorkspaceRepository @Inject constructor(
         database.withTransaction {
             LayoutId.entries.forEach { layout ->
                 val before = loadAll(layout)
-                writeDiff(before, normalizeLayout(reflowLayout(before, columns, rows, dockSlots)), layout)
+                writeDiff(before, normalizeLayout(reflowLayout(before, columns, rows, dockSlots, SUBGRID)), layout)
             }
         }
     }
@@ -202,7 +241,7 @@ class WorkspaceRepository @Inject constructor(
         database.withTransaction {
             if (dao.count(LayoutId.HOME.key) == 0) copyLayout(LayoutId.DRAWER, LayoutId.HOME)
             val before = loadAll(LayoutId.HOME)
-            writeDiff(before, normalizeLayout(addMissingApps(before, apps, columns, rows)), LayoutId.HOME)
+            writeDiff(before, normalizeLayout(addMissingApps(before, apps, columns, rows, SUBGRID)), LayoutId.HOME)
         }
     }
 
@@ -259,7 +298,7 @@ class WorkspaceRepository @Inject constructor(
             val existing = loadAll(layout)
             if (existing.any { it.shortcutKey == shortcut }) return@withLock AddResult.AlreadyOnHome
             val desktop = existing.filter { it.container == Container.Desktop }.map { it.placement }
-            val placement = findFirstFreePlacement(columns, rows, desktop) ?: return@withLock AddResult.NoSpace
+            val placement = findFirstFreePlacement(columns, rows, desktop, SUBGRID, SUBGRID, SUBGRID) ?: return@withLock AddResult.NoSpace
             val item = WorkspaceItem(
                 id = 0,
                 type = ItemType.SHORTCUT,

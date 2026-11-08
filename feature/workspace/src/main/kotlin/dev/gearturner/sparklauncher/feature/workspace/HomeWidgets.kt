@@ -48,6 +48,14 @@ import dev.gearturner.sparklauncher.feature.widgets.HostedWidget
 import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetBinder
 import dev.gearturner.sparklauncher.feature.widgets.WidgetOptionsDialog
 import kotlin.math.roundToInt
+import dev.gearturner.sparklauncher.core.model.SUBGRID
+import androidx.compose.foundation.Canvas
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.unit.IntSize
 
 @Composable
 internal fun WidgetTileView(
@@ -69,9 +77,27 @@ internal fun WidgetTileView(
         canUninstall = false,
         spanX = widget.placement.spanX,
         spanY = widget.placement.spanY,
+        isWidget = true,
     )
+    // the widget draws into this layer every frame, so the lifted copy shows its real, updating content
+    val live = rememberGraphicsLayer()
+    // a still copy for when the source page scrolls out of composition mid drag and the layer is released
+    val snapshot = remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(anchor.hidden) {
+        if (anchor.hidden && !live.isReleased) snapshot.value = live.toImageBitmap()
+    }
     val dragHandler = remember(controller, payload) {
-        controller?.let { itemDragHandler(it, anchor, payload, DragOrigin.Home, closeMenu = { menuOpen = false }) }
+        controller?.let {
+            itemDragHandler(it, anchor, payload, DragOrigin.Home, closeMenu = { menuOpen = false }) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    if (!live.isReleased) {
+                        drawLayer(live)
+                    } else {
+                        snapshot.value?.let { image -> drawImage(image, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())) }
+                    }
+                }
+            }
+        }
     }
     val resize = stringResource(R.string.workspace_widget_resize)
     val options = stringResource(R.string.workspace_widget_options)
@@ -83,7 +109,13 @@ internal fun WidgetTileView(
             options = previewOptions ?: widget.options,
             onLongClick = { menuOpen = true },
             dragHandler = dragHandler,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithContent {
+                    live.record { this@drawWithContent.drawContent() }
+                    // the source spot stays empty while its copy follows the finger, like an icon
+                    if (!anchor.hidden) drawLayer(live)
+                },
         )
         ItemMenu(
             expanded = menuOpen,
@@ -116,7 +148,8 @@ internal fun WidgetTileView(
 }
 
 /**
- * a frame with four handles around a widget. handles snap to whole cells as they move, within
+ * a frame with four handles around a widget. handles snap to whole cells as they move, or half
+ * cells with subgrid positioning, within
  * the limits the provider allows unless the user turned those off for this widget, and the new
  * size is saved when a handle is let go. tapping anywhere else ends resizing.
  */
@@ -134,21 +167,39 @@ internal fun ResizeFrame(
     val cellHeight = geometry.cellHeightPx()
     val rect = geometry.rectOf(preview)?.translate(-rootOrigin)
     if (rect == null || cellWidth <= 0f || cellHeight <= 0f) return
-    val (min, max) = remember(widget.provider, widget.options.ignoreSizeLimits, widget.placement, cellWidth, cellHeight) {
+    val step = geometry.snapStep()
+    val gridColumns = geometry.columns * SUBGRID
+    val gridRows = geometry.rows * SUBGRID
+    val (min, max) = remember(widget.provider, widget.options.ignoreSizeLimits, widget.placement, cellWidth, cellHeight, step) {
         val spec = widget.provider?.sizeSpec
-        if (spec == null) {
-            Span(1, 1) to Span(geometry.columns, geometry.rows)
-        } else {
-            with(density) {
+        val current = Span(widget.placement.spanX, widget.placement.spanY)
+        when {
+            spec == null -> Span(step, step) to Span(gridColumns, gridRows)
+            step == 1 -> with(density) {
+                // measured against half cells, so the limits come out in the same units as placements
                 resizeLimits(
                     spec = spec,
-                    current = Span(widget.placement.spanX, widget.placement.spanY),
+                    current = current,
+                    cellWidthDp = (cellWidth / SUBGRID).toDp().value,
+                    cellHeightDp = (cellHeight / SUBGRID).toDp().value,
+                    columns = gridColumns,
+                    rows = gridRows,
+                    freeResize = widget.options.ignoreSizeLimits,
+                )
+            }
+            else -> with(density) {
+                val (cellMin, cellMax) = resizeLimits(
+                    spec = spec,
+                    current = Span((current.x + SUBGRID - 1) / SUBGRID, (current.y + SUBGRID - 1) / SUBGRID),
                     cellWidthDp = cellWidth.toDp().value,
                     cellHeightDp = cellHeight.toDp().value,
                     columns = geometry.columns,
                     rows = geometry.rows,
                     freeResize = widget.options.ignoreSizeLimits,
                 )
+                // a widget sized in half cells earlier keeps that size as a valid choice
+                Span(minOf(cellMin.x * SUBGRID, current.x), minOf(cellMin.y * SUBGRID, current.y)) to
+                    Span(maxOf(cellMax.x * SUBGRID, current.x), maxOf(cellMax.y * SUBGRID, current.y))
             }
         }
     }
@@ -168,7 +219,17 @@ internal fun ResizeFrame(
             ResizeHandle(
                 center = edge.center(rect),
                 onDrag = { total ->
-                    preview = edge.resize(widget.placement, total, cellWidth, cellHeight, min, max, geometry.columns, geometry.rows)
+                    preview = edge.resize(
+                        widget.placement,
+                        total,
+                        geometry.unitWidthPx() * step,
+                        geometry.unitHeightPx() * step,
+                        step,
+                        min,
+                        max,
+                        gridColumns,
+                        gridRows,
+                    )
                 },
                 onRelease = { if (preview != widget.placement) viewModel.resizeWidget(widget.itemId, preview) },
             )
@@ -221,19 +282,24 @@ private enum class ResizeEdge {
         Bottom -> Offset(rect.center.x, rect.bottom)
     }
 
-    /** moves one edge by the drag, snapped to cells and kept inside the span limits and the grid */
+    /**
+     * moves one edge by the drag, snapped to [step] half cells and kept inside the span limits and
+     * the grid. [stepWidth] and [stepHeight] are the on screen size of one step; spans and the grid
+     * size are in half cells.
+     */
     fun resize(
         start: CellPlacement,
         drag: Offset,
-        cellWidth: Float,
-        cellHeight: Float,
+        stepWidth: Float,
+        stepHeight: Float,
+        step: Int,
         min: Span,
         max: Span,
         columns: Int,
         rows: Int,
     ): CellPlacement {
-        val dx = (drag.x / cellWidth).roundToInt()
-        val dy = (drag.y / cellHeight).roundToInt()
+        val dx = (drag.x / stepWidth).roundToInt() * step
+        val dy = (drag.y / stepHeight).roundToInt() * step
         val right = start.cellX + start.spanX
         val bottom = start.cellY + start.spanY
         return when (this) {

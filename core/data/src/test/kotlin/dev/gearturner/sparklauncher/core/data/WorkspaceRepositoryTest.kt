@@ -13,6 +13,7 @@ import dev.gearturner.sparklauncher.core.model.Dragged
 import dev.gearturner.sparklauncher.core.model.ItemType
 import dev.gearturner.sparklauncher.core.model.Span
 import dev.gearturner.sparklauncher.core.model.WidgetOptions
+import dev.gearturner.sparklauncher.core.model.WorkspaceItem
 import dev.gearturner.sparklauncher.core.model.ShortcutKey
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,9 +64,9 @@ class WorkspaceRepositoryTest {
         val placements = repository.items.first().map { it.placement }
         assertEquals(
             listOf(
-                CellPlacement(0, 0, 0), CellPlacement(0, 1, 0),
-                CellPlacement(0, 0, 1), CellPlacement(0, 1, 1),
-                CellPlacement(1, 0, 0),
+                CellPlacement(0, 0, 0, 2, 2), CellPlacement(0, 2, 0, 2, 2),
+                CellPlacement(0, 0, 2, 2, 2), CellPlacement(0, 2, 2, 2, 2),
+                CellPlacement(1, 0, 0, 2, 2),
             ),
             placements,
         )
@@ -132,18 +133,18 @@ class WorkspaceRepositoryTest {
     fun droppingAppOnAppBuildsAFolderAndDraggingOneOutDissolvesIt() = runTest {
         val a = (repository.addAppToDesktop(app("a"), 4, 5) as AddResult.Added).item
         val b = (repository.addAppToDesktop(app("b"), 4, 5) as AddResult.Added).item
-        val plan = repository.drop(Dragged.Existing(a), DropTarget.Desktop(0, 1, 0), 4, 5, 4)
+        val plan = repository.drop(Dragged.Existing(a), DropTarget.Desktop(0, 2, 0), 4, 5, 4)
         assertTrue(plan is DropPlan.CreateFolder)
         val withFolder = repository.items.first()
         val folder = withFolder.single { it.type == ItemType.FOLDER }
-        assertEquals(CellPlacement(0, 1, 0), folder.placement)
+        assertEquals(CellPlacement(0, 2, 0, 2, 2), folder.placement)
         assertEquals(2, withFolder.count { it.container == Container.Folder(folder.id) })
 
         val movedA = withFolder.single { it.id == a.id }
-        repository.drop(Dragged.Existing(movedA), DropTarget.Desktop(0, 3, 4), 4, 5, 4)
+        repository.drop(Dragged.Existing(movedA), DropTarget.Desktop(0, 6, 8), 4, 5, 4)
         val after = repository.items.first().associateBy { it.id }
         assertEquals(2, after.size)
-        assertEquals(CellPlacement(0, 1, 0), after.getValue(b.id).placement)
+        assertEquals(CellPlacement(0, 2, 0, 2, 2), after.getValue(b.id).placement)
         assertEquals(Container.Desktop, after.getValue(b.id).container)
     }
 
@@ -159,7 +160,7 @@ class WorkspaceRepositoryTest {
     fun removingAPackageClearsItsIconsAndTidiesFolders() = runTest {
         val a = (repository.addAppToDesktop(app("a"), 4, 5) as AddResult.Added).item
         repository.addAppToDesktop(app("b"), 4, 5)
-        repository.drop(Dragged.Existing(a), DropTarget.Desktop(0, 1, 0), 4, 5, 4)
+        repository.drop(Dragged.Existing(a), DropTarget.Desktop(0, 2, 0), 4, 5, 4)
         repository.removePackage("com.example.a", 0)
         val left = repository.items.first().single()
         assertEquals(app("b"), left.app)
@@ -167,16 +168,26 @@ class WorkspaceRepositoryTest {
     }
 
     @Test
+    fun aHalfCellResizeIsStoredAsIs() = runTest {
+        val provider = AppKey("com.example.clock", "com.example.clock.Widget", 0)
+        repository.drop(Dragged.NewWidget(provider, 12, Span(4, 2)), DropTarget.Desktop(0, 1, 0), 4, 5, 4)
+        val widget = repository.items.first().single()
+        assertEquals(CellPlacement(0, 1, 0, 4, 2), widget.placement)
+        assertTrue(repository.resize(widget.id, CellPlacement(0, 1, 0, 5, 3), 4, 5))
+        assertEquals(CellPlacement(0, 1, 0, 5, 3), repository.items.first().single().placement)
+    }
+
+    @Test
     fun widgetsArePlacedResizedAndReleaseTheirIdWhenRemoved() = runTest {
         val provider = AppKey("com.example.clock", "com.example.clock.Widget", 0)
-        val plan = repository.drop(Dragged.NewWidget(provider, 77, Span(2, 2)), DropTarget.Desktop(0, 0, 0), 4, 5, 4)
+        val plan = repository.drop(Dragged.NewWidget(provider, 77, Span(4, 4)), DropTarget.Desktop(0, 0, 0), 4, 5, 4)
         assertTrue(plan is DropPlan.Place)
         val widget = repository.items.first().single()
         assertEquals(77, widget.appWidgetId)
-        assertEquals(CellPlacement(0, 0, 0, 2, 2), widget.placement)
+        assertEquals(CellPlacement(0, 0, 0, 4, 4), widget.placement)
 
-        assertTrue(repository.resize(widget.id, CellPlacement(0, 0, 0, 4, 2), 4, 5))
-        assertFalse(repository.resize(widget.id, CellPlacement(0, 0, 0, 5, 2), 4, 5))
+        assertTrue(repository.resize(widget.id, CellPlacement(0, 0, 0, 8, 4), 4, 5))
+        assertFalse(repository.resize(widget.id, CellPlacement(0, 0, 0, 9, 4), 4, 5))
 
         repository.updateWidgetOptions(widget.id, WidgetOptions(padding = false, opacityPercent = 1))
         val stored = repository.items.first().single().widgetOptions
@@ -193,7 +204,7 @@ class WorkspaceRepositoryTest {
     fun homeOnlyStartsAsACopyAndThenEachModeKeepsItsOwnLayout() = runTest {
         val a = (repository.addAppToDesktop(app("a"), 4, 5) as AddResult.Added).item
         repository.addAppToDesktop(app("b"), 4, 5)
-        repository.drop(Dragged.Existing(a), DropTarget.Desktop(0, 1, 0), 4, 5, 4)
+        repository.drop(Dragged.Existing(a), DropTarget.Desktop(0, 2, 0), 4, 5, 4)
 
         repository.syncHomeOnly(listOf(app("a"), app("b"), app("c")), 4, 5)
         mode.value = LayoutId.HOME
@@ -235,7 +246,50 @@ class WorkspaceRepositoryTest {
         repeat(6) { repository.addAppToDesktop(app("r$it"), 3, 2) }
         repository.reflow(columns = 2, rows = 2, dockSlots = 4)
         val placements = repository.items.first().map { it.placement }
-        assertTrue(placements.all { it.cellX < 2 && it.cellY < 2 })
+        assertTrue(placements.all { it.cellX + it.spanX <= 4 && it.cellY + it.spanY <= 4 })
         assertEquals(6, placements.distinct().size)
+    }
+
+    @Test
+    fun reorderingInsideAFolderPersistsOnlyInTheActiveLayout() = runTest {
+        val a = (repository.addAppToDesktop(app("a"), 4, 5) as AddResult.Added).item
+        repository.addAppToDesktop(app("b"), 4, 5)
+        repository.drop(Dragged.Existing(a), DropTarget.Desktop(0, 2, 0), 4, 5, 4)
+        val c = (repository.addAppToDesktop(app("c"), 4, 5) as AddResult.Added).item
+        val folder = repository.items.first().single { it.type == ItemType.FOLDER }
+        repository.drop(Dragged.Existing(c), DropTarget.Desktop(0, 2, 0), 4, 5, 4)
+
+        fun names(items: List<WorkspaceItem>) =
+            items.filter { it.container == Container.Folder(folder.id) }.sortedBy { it.placement.cellX }.map { it.app!!.packageName }
+        assertEquals(listOf("com.example.b", "com.example.a", "com.example.c"), names(repository.items.first()))
+
+        repository.reorderInFolder(c.id, 0)
+        assertEquals(listOf("com.example.c", "com.example.b", "com.example.a"), names(repository.items.first()))
+
+        // the other mode's layout has no such folder and must stay empty
+        mode.value = LayoutId.HOME
+        assertTrue(repository.items.first().isEmpty())
+    }
+
+    @Test
+    fun droppingIntoAFolderPlacesExistingAndNewAppsAtTheirSpot() = runTest {
+        val a = (repository.addAppToDesktop(app("a"), 4, 5) as AddResult.Added).item
+        repository.addAppToDesktop(app("b"), 4, 5)
+        repository.drop(Dragged.Existing(a), DropTarget.Desktop(0, 2, 0), 4, 5, 4)
+        val folder = repository.items.first().single { it.type == ItemType.FOLDER }
+        val c = (repository.addAppToDesktop(app("c"), 4, 5) as AddResult.Added).item
+
+        assertTrue(repository.dropIntoFolder(Dragged.Existing(c), folder.id, 0))
+        assertTrue(repository.dropIntoFolder(Dragged.NewApp(app("d")), folder.id, 2))
+
+        val inside = repository.items.first().filter { it.container == Container.Folder(folder.id) }.sortedBy { it.placement.cellX }
+        assertEquals(listOf("c", "b", "d", "a").map { "com.example.$it" }, inside.map { it.app!!.packageName })
+        assertEquals(listOf(0, 1, 2, 3), inside.map { it.placement.cellX })
+    }
+
+    @Test
+    fun droppingIntoAMissingFolderIsRefused() = runTest {
+        val a = (repository.addAppToDesktop(app("a"), 4, 5) as AddResult.Added).item
+        assertFalse(repository.dropIntoFolder(Dragged.Existing(a), 999, 0))
     }
 }

@@ -4,10 +4,13 @@ package dev.gearturner.sparklauncher.core.model
  * fits an existing layout into a new grid without losing anything. items that still fit where
  * they are stay put; the rest move, in reading order, to the first free spot on their own page,
  * then later pages, then new pages at the end. widgets wider or taller than the new grid shrink
- * to fit, and dock items past the new slot count move onto the home pages.
+ * to fit, and dock items past the new slot count move onto the home pages. [cellColumns] and [cellRows]
+ * are whole cells; home placements are in units of 1 / [unit] of a cell.
  */
-fun reflowLayout(items: List<WorkspaceItem>, columns: Int, rows: Int, dockSlots: Int): List<WorkspaceItem> {
-    require(columns > 0 && rows > 0) { "grid must have at least one row and column" }
+fun reflowLayout(items: List<WorkspaceItem>, cellColumns: Int, cellRows: Int, dockSlots: Int, unit: Int = 1): List<WorkspaceItem> {
+    require(cellColumns > 0 && cellRows > 0 && unit > 0) { "grid must have at least one row and column" }
+    val columns = cellColumns * unit
+    val rows = cellRows * unit
     val result = items.filter { it.container !is Container.Desktop && it.container !is Container.Dock }.toMutableList()
     val displaced = ArrayList<WorkspaceItem>()
 
@@ -42,12 +45,12 @@ fun reflowLayout(items: List<WorkspaceItem>, columns: Int, rows: Int, dockSlots:
 
     val lastPage = (desktop.maxOfOrNull { it.placement.page } ?: 0)
     for (item in displaced) {
-        val span = if (item.container == Container.Dock) CellPlacement(0, 0, 0) else item.placement
+        val span = if (item.container == Container.Dock) CellPlacement(0, 0, 0, unit, unit) else item.placement
         val startPage = if (item.container == Container.Dock) 0 else item.placement.page
         var page = startPage
         var spot: Pair<Int, Int>? = null
         while (spot == null) {
-            spot = grid(page).findFree(span.spanX, span.spanY)
+            spot = grid(page).findFree(span.spanX, span.spanY, unit)
             if (spot == null) page++
             // a span that cannot fit even on an empty page was already clamped, so this always ends
             check(page <= lastPage + displaced.size + 1) { "reflow could not place an item" }
@@ -63,7 +66,9 @@ fun reflowLayout(items: List<WorkspaceItem>, columns: Int, rows: Int, dockSlots:
  * home only mode keeps every app on the home pages. this adds the given apps that are not placed
  * anywhere yet, in the order given, to the first free spots after everything already there.
  */
-fun addMissingApps(items: List<WorkspaceItem>, apps: List<AppKey>, columns: Int, rows: Int): List<WorkspaceItem> {
+fun addMissingApps(items: List<WorkspaceItem>, apps: List<AppKey>, cellColumns: Int, cellRows: Int, unit: Int = 1): List<WorkspaceItem> {
+    val columns = cellColumns * unit
+    val rows = cellRows * unit
     val placed = items.filter { it.type == ItemType.APP }.mapNotNull { it.app }.toSet()
     val missing = apps.filter { it !in placed }.distinct()
     if (missing.isEmpty()) return items
@@ -75,14 +80,14 @@ fun addMissingApps(items: List<WorkspaceItem>, apps: List<AppKey>, columns: Int,
     }
     var page = 0
     val added = missing.map { key ->
-        var spot = grids.getOrPut(page) { GridOccupancy(columns, rows) }.findFree()
+        var spot = grids.getOrPut(page) { GridOccupancy(columns, rows) }.findFree(unit, unit, unit)
         while (spot == null) {
             page++
-            spot = grids.getOrPut(page) { GridOccupancy(columns, rows) }.findFree()
+            spot = grids.getOrPut(page) { GridOccupancy(columns, rows) }.findFree(unit, unit, unit)
         }
         val (x, y) = spot
-        grids.getValue(page).mark(x, y)
-        WorkspaceItem(0, ItemType.APP, Container.Desktop, CellPlacement(page, x, y), key)
+        grids.getValue(page).mark(x, y, unit, unit)
+        WorkspaceItem(0, ItemType.APP, Container.Desktop, CellPlacement(page, x, y, unit, unit), key)
     }
     return items + added
 }

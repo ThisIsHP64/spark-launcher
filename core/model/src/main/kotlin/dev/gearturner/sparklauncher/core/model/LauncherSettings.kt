@@ -48,6 +48,10 @@ data class LauncherSettings(
     val drawerColumns: Int = 4,
     val iconScale: Float = 1f,
     val showHomeLabels: Boolean = true,
+    /** drops and widget resizing snap to half cells, so items can sit between grid cells */
+    val subgridPositioning: Boolean = false,
+    /** a dot on apps with notifications; needs notification access, granted in system settings */
+    val notificationDots: Boolean = true,
     val showDrawerLabels: Boolean = true,
     /** long names wrap onto a second line instead of being cut off */
     val labelLines: Int = 1,

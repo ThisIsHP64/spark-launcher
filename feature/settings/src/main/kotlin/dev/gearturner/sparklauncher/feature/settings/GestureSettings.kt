@@ -1,32 +1,27 @@
 package dev.gearturner.sparklauncher.feature.settings
 
 import android.Manifest
-import android.content.ActivityNotFoundException
-import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.outlined.TouchApp
+import androidx.compose.material.icons.Icons
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -73,28 +68,13 @@ private fun ServiceCard(settings: LauncherSettings, viewModel: SettingsViewModel
         onPauseOrDispose { }
     }
     if (enabled || !settings.gestures.needsAccessibilityService) return
-    val context = LocalContext.current
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-        shape = RoundedCornerShape(24.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(stringResource(R.string.settings_service_title), style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.size(4.dp))
-            Text(stringResource(R.string.settings_service_body), style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.size(12.dp))
-            FilledTonalButton(onClick = {
-                try {
-                    context.startActivity(SparkAccessibility.settingsIntent())
-                } catch (e: ActivityNotFoundException) {
-                    Log.w("GestureSettings", "no accessibility settings screen", e)
-                }
-            }) { Text(stringResource(R.string.settings_service_open)) }
-        }
-    }
+    AccessCard(
+        icon = Icons.Outlined.TouchApp,
+        title = stringResource(R.string.settings_service_title),
+        body = stringResource(R.string.settings_service_body),
+        action = stringResource(R.string.settings_service_open),
+        intent = SparkAccessibility::settingsIntent,
+    )
 }
 
 @Composable

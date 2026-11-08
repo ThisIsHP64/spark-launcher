@@ -1,5 +1,7 @@
 package dev.gearturner.sparklauncher.feature.workspace
 
+import dev.gearturner.sparklauncher.core.model.DropTarget
+import androidx.compose.runtime.CompositionLocalProvider
 import dev.gearturner.sparklauncher.core.ui.MenuAction
 import dev.gearturner.sparklauncher.core.ui.ItemMenu
 import dev.gearturner.sparklauncher.core.model.Gesture
@@ -18,6 +20,7 @@ import androidx.compose.material.icons.outlined.Wallpaper
 import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.ui.unit.IntOffset
 import dev.gearturner.sparklauncher.core.model.Span
+import dev.gearturner.sparklauncher.core.model.SUBGRID
 import dev.gearturner.sparklauncher.core.ui.LocalWidgetPicker
 import dev.gearturner.sparklauncher.feature.widgets.LocalWidgetBinder
 import dev.gearturner.sparklauncher.feature.widgets.WidgetBinder
@@ -42,6 +45,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -49,6 +53,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -91,7 +98,8 @@ fun HomeScreen(
     val iconRegistry = LocalHomeIconRegistry.current
     val geometry = remember { HomeGeometry() }
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
-    var openFolderId by remember { mutableStateOf<Long?>(null) }
+    var openFolder by remember { mutableStateOf<OpenFolder?>(null) }
+    val folderDrag = remember { FolderDrag() }
     var resizingId by remember { mutableStateOf<Long?>(null) }
     var emptyMenuAt by remember { mutableStateOf<Offset?>(null) }
     val density = LocalDensity.current
@@ -121,7 +129,7 @@ fun HomeScreen(
                 drawer.isVisible -> drawer.close()
                 picker?.isOpen == true -> picker.close()
                 resizingId != null -> resizingId = null
-                openFolderId != null -> openFolderId = null
+                openFolder != null -> openFolder = null
                 pagerState.currentPage != 0 -> pagerState.animateScrollToPage(0)
                 else -> currentRunGesture(Gesture.HOME_PRESS)
             }
@@ -132,20 +140,74 @@ fun HomeScreen(
     LaunchedEffect(session != null) { if (session != null) resizingId = null }
     DisposableEffect(dragController, viewModel, geometry, pagerState, binder) {
         dragController?.dropHandler = DropHandler { ended, onSettled ->
+            // an app held over a folder until it opened lands in the gap it was hovering over
+            val open = openFolder
+            if (open != null && open.incoming && ended.origin != DragOrigin.Folder && !folderDrag.leftPanel) {
+                val rank = folderDrag.hoverRank
+                val dragged = when (val payload = ended.payload) {
+                    is DragPayload.Existing -> viewModel.existing(payload.itemId)?.let(Dragged::Existing)
+                    is DragPayload.NewApp -> Dragged.NewApp(payload.key)
+                    is DragPayload.NewWidget -> null
+                }
+                if (rank != null && dragged != null) viewModel.dropIntoFolder(dragged, open.id, rank, onSettled) else onSettled()
+                return@DropHandler
+            }
+            // a drag that never left the open folder is a reorder inside it, and the folder stays open
+            if (ended.origin == DragOrigin.Folder && openFolder != null && !folderDrag.leftPanel) {
+                val itemId = (ended.payload as? DragPayload.Existing)?.itemId
+                val rank = folderDrag.hoverRank
+                if (itemId != null && rank != null) viewModel.reorderInFolder(itemId, rank)
+                onSettled()
+                return@DropHandler
+            }
             val zone = geometry.resolve(ended, pagerState.currentPage)
             handleDrop(zone, ended.payload, viewModel, binder, onSettled)
             // dragging an app out of a folder closes the folder once the app has landed
-            if (ended.origin == DragOrigin.Folder) openFolderId = null
+            if (ended.origin == DragOrigin.Folder) openFolder = null
         }
         onDispose { dragController?.dropHandler = null }
     }
-    EdgePageFlip(dragController, geometry, pagerState)
+    // while an open folder owns the drag its own edges flip its pages, so home must stay put underneath
+    EdgePageFlip(dragController, geometry, pagerState, suspended = { openFolder != null && !folderDrag.leftPanel })
+    val backdrop = rememberGraphicsLayer()
 
     val hovered by remember(dragController) {
         derivedStateOf {
             val active = dragController?.session ?: return@derivedStateOf DropZone.None
+            // home cells under an open folder are not targets until the app is dragged out of it
+            val folder = openFolder
+            if (folder != null && !folderDrag.leftPanel && (active.origin == DragOrigin.Folder || folder.incoming)) {
+                return@derivedStateOf DropZone.None
+            }
             geometry.resolve(active, pagerState.currentPage)
         }
+    }
+    // the app or folder a dragged icon would merge into, which grows to show it is a target
+    val hoverTarget by remember(dragController) {
+        derivedStateOf {
+            val active = dragController?.session ?: return@derivedStateOf null
+            val cell = hovered as? DropZone.Cell ?: return@derivedStateOf null
+            if (!viewModel.isSingleIcon(active.payload)) return@derivedStateOf null
+            val tile = tileAt(state, cell.target) ?: return@derivedStateOf null
+            // only a drop exactly onto the item merges; one landing half over it is refused instead
+            val target = cell.target
+            if (target is DropTarget.Desktop && (tile.placement.cellX != target.cellX || tile.placement.cellY != target.cellY)) {
+                return@derivedStateOf null
+            }
+            val draggedId = (active.payload as? DragPayload.Existing)?.itemId
+            tile.takeIf { (it is FolderTile || it is HomeCell) && it.itemId != draggedId }
+        }
+    }
+    // holding an app over a folder opens it, so the app can be placed exactly where it should go
+    LaunchedEffect(dragController) {
+        snapshotFlow { (hoverTarget as? FolderTile)?.itemId?.let { id -> id to (hovered as? DropZone.Cell)?.highlight } }
+            .distinctUntilChanged { old, new -> old?.first == new?.first }
+            .collectLatest { target ->
+                if (target == null || openFolder != null) return@collectLatest
+                delay(FOLDER_OPEN_DWELL_MS)
+                folderDrag.reset()
+                openFolder = OpenFolder(target.first, target.second, incoming = true)
+            }
     }
 
     Box(
@@ -153,78 +215,103 @@ fun HomeScreen(
             .fillMaxSize()
             .onGloballyPositioned { rootOrigin = it.positionInRoot() },
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .homeSwipes(
-                    drawer = drawer,
-                    enabled = session == null,
-                    swipeUpDragsDrawer = state.settings.gestures.swipeUp.action == GestureAction.OPEN_DRAWER,
-                    onGesture = runGesture,
-                )
-                .statusBarsPadding()
-                .navigationBarsPadding(),
-        ) {
-            if (!state.loading) {
-                val iconSize = BaseIconSize * state.settings.iconScale
-                geometry.columns = state.settings.homeColumns
-                geometry.rows = state.settings.homeRows
-                geometry.dockSlots = state.settings.dockSlots
-                geometry.gridPaddingPx = with(density) { GridPadding.toPx() }
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .onGloballyPositioned {
-                            geometry.pagerBounds = it.boundsInRoot()
-                            // the picker sizes previews and dragged widgets from the real cell size
-                            picker?.let { p ->
-                                with(density) {
-                                    p.cellWidthDp = geometry.cellWidthPx().toDp().value
-                                    p.cellHeightDp = geometry.cellHeightPx().toDp().value
-                                }
-                                p.columns = geometry.columns
-                                p.rows = geometry.rows
+        CompositionLocalProvider(LocalDropHover provides hoverTarget?.itemId) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    // recorded so the drop bar can draw a blurred copy of what sits behind it
+                    .drawWithContent {
+                        backdrop.record { this@drawWithContent.drawContent() }
+                        drawLayer(backdrop)
+                    }
+                    .homeSwipes(
+                        drawer = drawer,
+                        enabled = session == null,
+                        swipeUpDragsDrawer = state.settings.gestures.swipeUp.action == GestureAction.OPEN_DRAWER,
+                        startsOnWidget = { local ->
+                            val inRoot = local + rootOrigin
+                            state.pages.getOrNull(pagerState.currentPage).orEmpty().any { tile ->
+                                tile is WidgetTile && geometry.rectOf(tile.placement)?.contains(inRoot) == true
                             }
                         },
-                    beyondViewportPageCount = 1,
-                ) { page ->
-                    PageGrid(
-                        tiles = state.pages.getOrNull(page).orEmpty(),
-                        columns = state.settings.homeColumns,
-                        rows = state.settings.homeRows,
-                        iconSize = iconSize,
-                        showLabels = state.settings.showHomeLabels,
-                        viewModel = viewModel,
-                        onOpenFolder = { openFolderId = it },
-                        onResizeWidget = { resizingId = it.itemId },
-                        onEmptyLongPress = { emptyMenuAt = it },
-                        onEmptyDoubleTap = if (state.settings.gestures.doubleTap.action == GestureAction.NONE) {
-                            null
-                        } else {
-                            { runGesture(Gesture.DOUBLE_TAP) }
-                        },
+                        onGesture = runGesture,
                     )
-                }
-                PageIndicator(pagerState)
-                if (state.settings.dockSlots > 0) {
-                    Dock(
-                        tiles = state.dock,
-                        slots = state.settings.dockSlots,
-                        iconSize = iconSize,
-                        viewModel = viewModel,
-                        onBounds = { geometry.dockBounds = it },
-                        onOpenFolder = { openFolderId = it },
-                    )
-                } else {
-                    geometry.dockBounds = null
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+            ) {
+                if (!state.loading) {
+                    val iconSize = BaseIconSize * state.settings.iconScale
+                    geometry.columns = state.settings.homeColumns
+                    geometry.rows = state.settings.homeRows
+                    geometry.dockSlots = state.settings.dockSlots
+                    geometry.gridPaddingPx = with(density) { GridPadding.toPx() }
+                    geometry.subgrid = state.settings.subgridPositioning
+                    geometry.iconAt = { page, x, y ->
+                        // the dragged icon still sits in its old spot, and must not catch its own drop
+                        val draggedId = (dragController?.session?.payload as? DragPayload.Existing)?.itemId
+                        state.pages.getOrNull(page)?.firstOrNull { tile ->
+                            val p = tile.placement
+                            tile !is WidgetTile && tile.itemId != draggedId &&
+                                x in p.cellX until p.cellX + p.spanX && y in p.cellY until p.cellY + p.spanY
+                        }?.placement
+                    }
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .onGloballyPositioned {
+                                geometry.pagerBounds = it.boundsInRoot()
+                                // the picker sizes previews and dragged widgets from the real cell size
+                                picker?.let { p ->
+                                    with(density) {
+                                        p.cellWidthDp = geometry.cellWidthPx().toDp().value
+                                        p.cellHeightDp = geometry.cellHeightPx().toDp().value
+                                    }
+                                    p.columns = geometry.columns
+                                    p.rows = geometry.rows
+                                }
+                            },
+                        // the drag gesture lives on the source tile, so its page must stay composed until the drop
+                        // or the gesture is cancelled; while dragging every page stays alive for that reason
+                        beyondViewportPageCount = if (session != null) maxOf(1, pagerState.pageCount - 1) else 1,
+                    ) { page ->
+                        PageGrid(
+                            tiles = state.pages.getOrNull(page).orEmpty(),
+                            columns = state.settings.homeColumns,
+                            rows = state.settings.homeRows,
+                            iconSize = iconSize,
+                            showLabels = state.settings.showHomeLabels,
+                            viewModel = viewModel,
+                            onOpenFolder = { openFolder = it },
+                            onResizeWidget = { resizingId = it.itemId },
+                            onEmptyLongPress = { emptyMenuAt = it },
+                            onEmptyDoubleTap = if (state.settings.gestures.doubleTap.action == GestureAction.NONE) {
+                                null
+                            } else {
+                                { runGesture(Gesture.DOUBLE_TAP) }
+                            },
+                        )
+                    }
+                    PageIndicator(pagerState)
+                    if (state.settings.dockSlots > 0) {
+                        Dock(
+                            tiles = state.dock,
+                            slots = state.settings.dockSlots,
+                            iconSize = iconSize,
+                            viewModel = viewModel,
+                            onBounds = { geometry.dockBounds = it },
+                            onOpenFolder = { openFolder = it },
+                        )
+                    } else {
+                        geometry.dockBounds = null
+                    }
                 }
             }
         }
         if (session != null) {
             DropHighlight(hovered, rootOrigin)
-            DropBar(session, hovered, geometry)
+            DropBar(session, hovered, geometry, backdrop)
         }
         val resizing = resizingId?.let { id ->
             state.pages.getOrNull(pagerState.currentPage)?.firstOrNull { it.itemId == id } as? WidgetTile
@@ -239,20 +326,27 @@ fun HomeScreen(
             onWidgets = { picker?.open() },
             onSettings = onOpenSettings,
         )
-        val openFolder = openFolderId?.let { id ->
-            (state.pages.flatten() + state.dock).firstOrNull { it.itemId == id } as? FolderTile
+        val request = openFolder
+        val folderTile = request?.let { open ->
+            (state.pages.flatten() + state.dock).firstOrNull { it.itemId == open.id } as? FolderTile
         }
-        if (openFolder != null) {
-            FolderOverlay(
-                folder = openFolder,
-                draggingOut = session?.origin == DragOrigin.Folder,
-                iconSize = BaseIconSize * state.settings.iconScale,
-                viewModel = viewModel,
-                onClose = { openFolderId = null },
-            )
-        } else if (openFolderId != null && session == null) {
+        if (request != null && folderTile != null) {
+            // keyed so a different folder starts fresh, with its own name field and open animation
+            key(request.id) {
+                FolderOverlay(
+                    folder = folderTile,
+                    request = request,
+                    rootOrigin = rootOrigin,
+                    drag = folderDrag,
+                    iconSize = BaseIconSize * state.settings.iconScale,
+                    viewModel = viewModel,
+                    acceptsIncoming = viewModel::isSingleIcon,
+                    onClose = { openFolder = null },
+                )
+            }
+        } else if (request != null && session == null) {
             // the folder dissolved or was removed while open
-            openFolderId = null
+            openFolder = null
         }
     }
 }
@@ -267,7 +361,7 @@ private fun handleDrop(
     when (zone) {
         is DropZone.Cell -> {
             if (payload is DragPayload.NewWidget) {
-                viewModel.placeWidget(payload.provider, Span(payload.spanX, payload.spanY), zone.target, binder, onSettled)
+                viewModel.placeWidget(payload.provider, Span(payload.spanX * SUBGRID, payload.spanY * SUBGRID), zone.target, binder, onSettled)
                 return
             }
             val dragged = when (payload) {
@@ -322,12 +416,19 @@ private fun EmptySpaceMenu(at: Offset?, onDismiss: () -> Unit, onWidgets: () -> 
 
 /** holding a dragged icon at either edge turns the page, repeatedly while it stays there */
 @Composable
-private fun EdgePageFlip(controller: DragController?, geometry: HomeGeometry, pagerState: PagerState) {
+private fun EdgePageFlip(
+    controller: DragController?,
+    geometry: HomeGeometry,
+    pagerState: PagerState,
+    suspended: () -> Boolean,
+) {
     val edgePx = with(LocalDensity.current) { EDGE_ZONE.toPx() }
     // keyed on the controller rather than the finger, so moving within an edge keeps the dwell timer running
     LaunchedEffect(controller, pagerState) {
         if (controller == null) return@LaunchedEffect
-        snapshotFlow { controller.session?.fingerInRoot?.let { geometry.edgeDirection(it, edgePx) } ?: 0 }
+        snapshotFlow {
+            if (suspended()) 0 else controller.session?.fingerInRoot?.let { geometry.edgeDirection(it, edgePx) } ?: 0
+        }
             .distinctUntilChanged()
             .collectLatest { direction ->
                 while (direction != 0) {
@@ -391,3 +492,14 @@ private fun PageIndicator(pagerState: PagerState) {
 
 private val EDGE_ZONE = 32.dp
 private const val EDGE_DWELL_MS = 550L
+
+/** the app, folder or widget covering [target] on home or in the dock, if any */
+private fun tileAt(state: HomeUiState, target: DropTarget): HomeTile? = when (target) {
+    is DropTarget.Desktop -> state.pages.getOrNull(target.page)?.firstOrNull { tile ->
+        val p = tile.placement
+        target.cellX in p.cellX until p.cellX + p.spanX && target.cellY in p.cellY until p.cellY + p.spanY
+    }
+    is DropTarget.Dock -> state.dock.firstOrNull { it.placement.cellX == target.slot }
+}
+
+private const val FOLDER_OPEN_DWELL_MS = 600L

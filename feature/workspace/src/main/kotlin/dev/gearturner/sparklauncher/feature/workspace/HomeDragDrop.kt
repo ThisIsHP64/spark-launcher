@@ -1,5 +1,25 @@
 package dev.gearturner.sparklauncher.feature.workspace
 
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Column
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,10 +56,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import dev.gearturner.sparklauncher.core.model.CellPlacement
 import dev.gearturner.sparklauncher.core.model.DropTarget
+import dev.gearturner.sparklauncher.core.model.SUBGRID
 import dev.gearturner.sparklauncher.core.ui.DragPayload
 import dev.gearturner.sparklauncher.core.ui.DragSession
-import dev.gearturner.sparklauncher.core.ui.spanX
-import dev.gearturner.sparklauncher.core.ui.spanY
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -66,32 +85,48 @@ internal class HomeGeometry {
     var dockSlots: Int = 0
     var removeBounds: Rect? = null
     var uninstallBounds: Rect? = null
+    /** when on, drops snap to half cells instead of whole ones */
+    var subgrid: Boolean = false
+    /** the placement of an icon or folder covering a half cell spot on a page, so a drop over it can merge */
+    var iconAt: (page: Int, x: Int, y: Int) -> CellPlacement? = { _, _, _ -> null }
 
+    /** the size of a whole grid cell */
     fun cellWidthPx(): Float = pagerBounds?.let { (it.width - 2 * gridPaddingPx) / columns } ?: 0f
 
     fun cellHeightPx(): Float = pagerBounds?.let { it.height / rows } ?: 0f
 
+    /** placements are stored in half cells, so positions and spans are measured in these */
+    fun unitWidthPx(): Float = cellWidthPx() / SUBGRID
+
+    fun unitHeightPx(): Float = cellHeightPx() / SUBGRID
+
+    /** how many half cells a drop or resize moves by: one with subgrid positioning, a whole cell without */
+    fun snapStep(): Int = if (subgrid) 1 else SUBGRID
+
     /** the on screen rectangle of a placement on the visible page */
     fun rectOf(placement: CellPlacement): Rect? {
         val pager = pagerBounds ?: return null
-        val left = pager.left + gridPaddingPx + placement.cellX * cellWidthPx()
-        val top = pager.top + placement.cellY * cellHeightPx()
-        return Rect(left, top, left + placement.spanX * cellWidthPx(), top + placement.spanY * cellHeightPx())
+        val left = pager.left + gridPaddingPx + placement.cellX * unitWidthPx()
+        val top = pager.top + placement.cellY * unitHeightPx()
+        return Rect(left, top, left + placement.spanX * unitWidthPx(), top + placement.spanY * unitHeightPx())
     }
 
     fun resolve(session: DragSession, page: Int): DropZone =
         resolve(session.fingerInRoot, session.fingerInRoot - session.grabOffset, page, session.payload)
 
     /**
-     * single icons land under the finger; larger items land where their top left cell sits, so a
-     * widget drops exactly where its lifted copy is drawn.
+     * single icons land under the finger; widgets land where their top left corner sits, so a
+     * widget drops exactly where its lifted copy is drawn. an icon over another icon or folder
+     * targets that item's exact spot, so merging works the same with or without subgrid positioning.
      */
     fun resolve(finger: Offset, itemTopLeft: Offset, page: Int, payload: DragPayload): DropZone {
         if (removeBounds?.contains(finger) == true && payload is DragPayload.Existing) return DropZone.Remove
         if (uninstallBounds?.contains(finger) == true && payload.canUninstall()) return DropZone.Uninstall
-        val spanX = payload.spanX
-        val spanY = payload.spanY
-        if (spanX > 1 || spanY > 1) return resolveBlock(itemTopLeft, page, spanX, spanY)
+        when (payload) {
+            is DragPayload.NewWidget -> return resolveBlock(itemTopLeft, page, payload.spanX * SUBGRID, payload.spanY * SUBGRID)
+            is DragPayload.Existing -> if (payload.isWidget) return resolveBlock(itemTopLeft, page, payload.spanX, payload.spanY)
+            is DragPayload.NewApp -> Unit
+        }
         dockBounds?.takeIf { it.contains(finger) && dockSlots > 0 }?.let { dock ->
             val slotWidth = dock.width / dockSlots
             val slot = floor((finger.x - dock.left) / slotWidth).toInt().coerceIn(0, dockSlots - 1)
@@ -99,30 +134,52 @@ internal class HomeGeometry {
             return DropZone.Cell(DropTarget.Dock(slot), rect)
         }
         val pager = pagerBounds?.takeIf { it.contains(finger) } ?: return DropZone.None
-        val gridLeft = pager.left + gridPaddingPx
-        val cellWidth = (pager.width - 2 * gridPaddingPx) / columns
-        val cellHeight = pager.height / rows
-        val x = floor((finger.x - gridLeft) / cellWidth).toInt()
-        val y = floor((finger.y - pager.top) / cellHeight).toInt()
-        if (x !in 0 until columns || y !in 0 until rows) return DropZone.None
-        val rect = Rect(
-            gridLeft + x * cellWidth,
-            pager.top + y * cellHeight,
-            gridLeft + (x + 1) * cellWidth,
-            pager.top + (y + 1) * cellHeight,
-        )
-        return DropZone.Cell(DropTarget.Desktop(page, x, y), rect)
+        val unitWidth = unitWidthPx()
+        val unitHeight = unitHeightPx()
+        if (unitWidth <= 0f || unitHeight <= 0f) return DropZone.None
+        val gridColumns = columns * SUBGRID
+        val gridRows = rows * SUBGRID
+        val fx = (finger.x - pager.left - gridPaddingPx) / unitWidth
+        val fy = (finger.y - pager.top) / unitHeight
+        if (fx < 0f || fy < 0f || fx >= gridColumns || fy >= gridRows) return DropZone.None
+        // with half cells, only the middle of an icon merges, so its outer edges stay free for the
+        // half spots right beside it
+        val inset = if (subgrid) MERGE_INSET else 0f
+        val spot = iconAt(page, floor(fx).toInt(), floor(fy).toInt())?.takeIf { p ->
+            fx >= p.cellX + inset && fx < p.cellX + p.spanX - inset && fy >= p.cellY + inset && fy < p.cellY + p.spanY - inset
+        }
+            ?: if (subgrid) {
+                // the icon is centered on the finger, then snapped to the nearest half cell
+                CellPlacement(
+                    page,
+                    (fx - SUBGRID / 2f).roundToInt().coerceIn(0, gridColumns - SUBGRID),
+                    (fy - SUBGRID / 2f).roundToInt().coerceIn(0, gridRows - SUBGRID),
+                    SUBGRID,
+                    SUBGRID,
+                )
+            } else {
+                CellPlacement(page, floor(fx / SUBGRID).toInt() * SUBGRID, floor(fy / SUBGRID).toInt() * SUBGRID, SUBGRID, SUBGRID)
+            }
+        val rect = rectOf(spot) ?: return DropZone.None
+        return DropZone.Cell(DropTarget.Desktop(page, spot.cellX, spot.cellY), rect)
     }
 
     private fun resolveBlock(topLeft: Offset, page: Int, spanX: Int, spanY: Int): DropZone {
         val pager = pagerBounds ?: return DropZone.None
-        val cellWidth = cellWidthPx()
-        val cellHeight = cellHeightPx()
-        if (cellWidth <= 0f || cellHeight <= 0f) return DropZone.None
-        // rounding to the nearest cell edge feels like snapping instead of jumping a cell early
-        val x = ((topLeft.x - pager.left - gridPaddingPx) / cellWidth).roundToInt().coerceIn(0, (columns - spanX).coerceAtLeast(0))
-        val y = ((topLeft.y - pager.top) / cellHeight).roundToInt().coerceIn(0, (rows - spanY).coerceAtLeast(0))
-        if (spanX > columns || spanY > rows) return DropZone.None
+        val unitWidth = unitWidthPx()
+        val unitHeight = unitHeightPx()
+        if (unitWidth <= 0f || unitHeight <= 0f) return DropZone.None
+        val gridColumns = columns * SUBGRID
+        val gridRows = rows * SUBGRID
+        if (spanX > gridColumns || spanY > gridRows) return DropZone.None
+        val step = snapStep()
+        // rounding to the nearest snap line feels like snapping instead of jumping a cell early
+        fun snap(offset: Float, unit: Float, room: Int): Int {
+            val steps = (offset / (unit * step)).roundToInt()
+            return (steps * step).coerceIn(0, (room / step) * step)
+        }
+        val x = snap(topLeft.x - pager.left - gridPaddingPx, unitWidth, gridColumns - spanX)
+        val y = snap(topLeft.y - pager.top, unitHeight, gridRows - spanY)
         val rect = rectOf(CellPlacement(page, x, y, spanX, spanY)) ?: return DropZone.None
         return DropZone.Cell(DropTarget.Desktop(page, x, y), rect)
     }
@@ -145,61 +202,117 @@ internal fun DragPayload.canUninstall(): Boolean = when (this) {
     is DragPayload.NewWidget -> false
 }
 
-/** the remove and uninstall targets along the top while something is being dragged */
+/**
+ * the remove and uninstall targets while something is being dragged: two large circles over a blurred
+ * copy of the home content behind them. the wallpaper is drawn by the system outside the app, so a light
+ * dim covers it instead, and the blur fades out toward the bottom so it has no hard edge.
+ * [backdrop] must hold the home content recorded at the same origin as this bar.
+ */
 @Composable
-internal fun DropBar(session: DragSession, hovered: DropZone, geometry: HomeGeometry, modifier: Modifier = Modifier) {
-    Row(
+internal fun DropBar(
+    session: DragSession,
+    hovered: DropZone,
+    geometry: HomeGeometry,
+    backdrop: GraphicsLayer,
+    modifier: Modifier = Modifier,
+) {
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, tween(DROP_BAR_FADE_MS)) }
+    val blurred = rememberGraphicsLayer()
+    val blurPx = with(LocalDensity.current) { DROP_BAR_BLUR.toPx() }
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
+            .graphicsLayer {
+                alpha = appear.value
+                // offscreen so the fade mask below only cuts into the blur, never into what is behind the bar
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+            .drawWithContent {
+                blurred.renderEffect = BlurEffect(blurPx, blurPx, TileMode.Clamp)
+                // recorded at the full backdrop size so the blur samples content below the bar, not a clamped edge
+                blurred.record(size = backdrop.size) { drawLayer(backdrop) }
+                clipRect { this@drawWithContent.drawLayer(blurred) }
+                drawRect(
+                    Brush.verticalGradient(0f to Color.Black, BLUR_SOLID_UNTIL to Color.Black, 1f to Color.Transparent),
+                    blendMode = BlendMode.DstIn,
+                )
+                drawRect(Brush.verticalGradient(listOf(Color.Black.copy(alpha = DROP_BAR_DIM_ALPHA), Color.Transparent)))
+                drawContent()
+            },
     ) {
-        if (session.payload is DragPayload.Existing) {
-            DropBarTarget(
-                label = stringResource(R.string.workspace_remove),
-                icon = Icons.Outlined.Close,
-                active = hovered == DropZone.Remove,
-                onBounds = { geometry.removeBounds = it },
-            )
-        } else {
-            geometry.removeBounds = null
-        }
-        if (session.payload.canUninstall()) {
-            Spacer(modifier = Modifier.width(24.dp))
-            DropBarTarget(
-                label = stringResource(R.string.workspace_uninstall),
-                icon = Icons.Outlined.Delete,
-                active = hovered == DropZone.Uninstall,
-                onBounds = { geometry.uninstallBounds = it },
-            )
-        } else {
-            geometry.uninstallBounds = null
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(top = 16.dp, bottom = 56.dp),
+            horizontalArrangement = Arrangement.spacedBy(48.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.Top,
+        ) {
+            if (session.payload is DragPayload.Existing) {
+                DropBarTarget(
+                    label = stringResource(R.string.workspace_remove),
+                    icon = Icons.Outlined.Close,
+                    active = hovered == DropZone.Remove,
+                    onBounds = { geometry.removeBounds = it },
+                )
+            } else {
+                geometry.removeBounds = null
+            }
+            if (session.payload.canUninstall()) {
+                DropBarTarget(
+                    label = stringResource(R.string.workspace_uninstall),
+                    icon = Icons.Outlined.Delete,
+                    active = hovered == DropZone.Uninstall,
+                    onBounds = { geometry.uninstallBounds = it },
+                )
+            } else {
+                geometry.uninstallBounds = null
+            }
         }
     }
 }
 
 @Composable
 private fun DropBarTarget(label: String, icon: ImageVector, active: Boolean, onBounds: (Rect) -> Unit) {
-    val container = if (active) MaterialTheme.colorScheme.errorContainer else Color.Black.copy(alpha = 0.35f)
+    val container by animateColorAsState(
+        if (active) MaterialTheme.colorScheme.errorContainer else Color.White.copy(alpha = INACTIVE_TARGET_ALPHA),
+        label = "drop_target_color",
+    )
     val content = if (active) MaterialTheme.colorScheme.onErrorContainer else Color.White
-    Row(
-        modifier = Modifier
-            // the hit area is grown well past the pill so a quick flick upward still lands on it
-            .onGloballyPositioned { coords ->
-                val b = coords.boundsInRoot()
-                onBounds(Rect(b.left - 48f, b.top - 200f, b.right + 48f, b.bottom + 48f))
-            }
-            .background(container, CircleShape)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(20.dp))
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(label, color = content, style = MaterialTheme.typography.labelLarge)
+    val scale by animateFloatAsState(if (active) ACTIVE_TARGET_SCALE else 1f, label = "drop_target_scale")
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                // the hit area is grown well past the circle so a quick flick upward still lands on it
+                .onGloballyPositioned { coords ->
+                    val b = coords.boundsInRoot()
+                    onBounds(Rect(b.left - 48f, b.top - 200f, b.right + 48f, b.bottom + 96f))
+                }
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
+                .size(TARGET_SIZE)
+                .background(container, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size(28.dp))
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(label, color = Color.White, style = MaterialTheme.typography.labelLarge)
     }
 }
+
+private const val DROP_BAR_FADE_MS = 150
+/** how far in from each side of an icon, in half cells, a finger must be to merge with it */
+private const val MERGE_INSET = 0.5f
+private const val DROP_BAR_DIM_ALPHA = 0.55f
+private const val BLUR_SOLID_UNTIL = 0.6f
+private val DROP_BAR_BLUR = 40.dp
+private const val INACTIVE_TARGET_ALPHA = 0.2f
+private const val ACTIVE_TARGET_SCALE = 1.15f
+private val TARGET_SIZE = 72.dp
 
 /** an outline on the cell the dragged icon would land in */
 @Composable

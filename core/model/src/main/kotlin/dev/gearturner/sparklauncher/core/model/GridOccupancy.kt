@@ -34,10 +34,18 @@ class GridOccupancy(val columns: Int, val rows: Int) {
         }
     }
 
-    /** scans row by row, left to right, matching how people read a home screen */
-    fun findFree(spanX: Int = 1, spanY: Int = 1): Pair<Int, Int>? {
-        for (y in 0..rows - spanY) {
-            for (x in 0..columns - spanX) {
+    /**
+     * scans row by row, left to right, matching how people read a home screen. positions on a
+     * multiple of [step] are tried first, so automatic placement stays on whole cells whenever it can.
+     */
+    fun findFree(spanX: Int = 1, spanY: Int = 1, step: Int = 1): Pair<Int, Int>? {
+        if (step > 1) scan(spanX, spanY, step)?.let { return it }
+        return scan(spanX, spanY, 1)
+    }
+
+    private fun scan(spanX: Int, spanY: Int, step: Int): Pair<Int, Int>? {
+        for (y in 0..rows - spanY step step) {
+            for (x in 0..columns - spanX step step) {
                 if (isFree(x, y, spanX, spanY)) return x to y
             }
         }
@@ -54,7 +62,8 @@ class GridOccupancy(val columns: Int, val rows: Int) {
 
 /**
  * picks the first free cell across existing pages, appending a new page when all are full.
- * returns null only if the requested span cannot fit on an empty page.
+ * returns null only if the requested span cannot fit on an empty page. [columns] and [rows] are in
+ * whole cells, while placements and spans are in units of 1 / [unit] of a cell.
  */
 fun findFirstFreePlacement(
     columns: Int,
@@ -62,13 +71,16 @@ fun findFirstFreePlacement(
     desktopPlacements: List<CellPlacement>,
     spanX: Int = 1,
     spanY: Int = 1,
+    unit: Int = 1,
 ): CellPlacement? {
-    if (spanX > columns || spanY > rows) return null
+    val gridColumns = columns * unit
+    val gridRows = rows * unit
+    if (spanX > gridColumns || spanY > gridRows) return null
     val byPage = desktopPlacements.groupBy { it.page }
     val pageCount = (desktopPlacements.maxOfOrNull { it.page } ?: -1) + 1
     for (page in 0 until pageCount) {
-        val grid = GridOccupancy.of(columns, rows, byPage[page].orEmpty())
-        grid.findFree(spanX, spanY)?.let { (x, y) -> return CellPlacement(page, x, y, spanX, spanY) }
+        val grid = GridOccupancy.of(gridColumns, gridRows, byPage[page].orEmpty())
+        grid.findFree(spanX, spanY, unit)?.let { (x, y) -> return CellPlacement(page, x, y, spanX, spanY) }
     }
     return CellPlacement(pageCount, 0, 0, spanX, spanY)
 }

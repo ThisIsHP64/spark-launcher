@@ -42,6 +42,8 @@ import dev.gearturner.sparklauncher.core.model.DropTarget
 import dev.gearturner.sparklauncher.core.model.Dragged
 import dev.gearturner.sparklauncher.core.model.ShortcutKey
 import dev.gearturner.sparklauncher.core.model.defaultSpan
+import dev.gearturner.sparklauncher.core.model.SUBGRID
+import dev.gearturner.sparklauncher.core.model.Span
 import dev.gearturner.sparklauncher.core.theme.SparkTheme
 import dev.gearturner.sparklauncher.feature.widgets.WidgetHostManager
 import dev.gearturner.sparklauncher.feature.widgets.WidgetPreview
@@ -162,7 +164,8 @@ class AddItemActivity : ComponentActivity() {
         lifecycleScope.launch {
             val current = settings.current()
             val (cellWidth, cellHeight) = approximateCellDp(current.homeColumns, current.homeRows)
-            val span = defaultSpan(provider.sizeSpec, cellWidth, cellHeight, current.homeColumns, current.homeRows)
+            val cells = defaultSpan(provider.sizeSpec, cellWidth, cellHeight, current.homeColumns, current.homeRows)
+            val span = Span(cells.x * SUBGRID, cells.y * SUBGRID)
             val spot = workspace.firstFreeDesktopSpot(span.x, span.y, current.homeColumns, current.homeRows)
             if (spot == null) return@launch finishWith(R.string.add_shortcut_no_space)
             // the app configured its widget before asking, so its setup screen is skipped

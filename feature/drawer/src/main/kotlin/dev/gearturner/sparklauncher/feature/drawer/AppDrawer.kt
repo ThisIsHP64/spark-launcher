@@ -1,5 +1,8 @@
 package dev.gearturner.sparklauncher.feature.drawer
 
+import dev.gearturner.sparklauncher.core.apps.dotKey
+import dev.gearturner.sparklauncher.core.ui.LocalNotificationDots
+
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -334,9 +337,9 @@ private fun DrawerItem(
     val actions = drawerItemActions(entry, viewModel, anchor, onRename = { renaming = true }, onChangeIcon = { changingIcon = true })
     val dragController = LocalDragController.current
     val canUninstall = viewModel.canUninstall(app)
-    val dragHandler = remember(dragController, app.key, canUninstall, drawer) {
+    val dragHandler = remember(dragController, app.key, canUninstall, drawer, app.label) {
         dragController?.let { controller ->
-            drawerDragHandler(controller, drawer, anchor, DragPayload.NewApp(app.key, canUninstall)) { menuOpen = false }
+            drawerDragHandler(controller, drawer, anchor, DragPayload.NewApp(app.key, canUninstall), app.label) { menuOpen = false }
         }
     }
     // the top hit sits on a tinted plate so it is obvious which app the keyboard's go key opens;
@@ -365,10 +368,12 @@ private fun DrawerItem(
             onClick = { viewModel.launch(app, anchor.request()) },
             onLongClick = { menuOpen = true },
             dragHandler = dragHandler,
+            showDot = app.key.dotKey in LocalNotificationDots.current,
         )
         ItemMenu(
             expanded = menuOpen,
             onDismiss = { menuOpen = false },
+            iconBounds = anchor::boundsInRoot,
             owner = app.key,
             loadShortcuts = { viewModel.menuShortcuts(app) },
             onShortcutClick = { viewModel.launchShortcut(it, anchor.request()) },
@@ -456,6 +461,7 @@ private fun drawerDragHandler(
     drawer: DrawerController,
     anchor: LaunchAnchor,
     payload: DragPayload,
+    label: String,
     closeMenu: () -> Unit,
 ): IconDragHandler = object : IconDragHandler {
     override fun onDragStart(fingerInRoot: Offset, iconBoundsInRoot: Rect) {
@@ -469,6 +475,7 @@ private fun drawerDragHandler(
                 sizePx = iconBoundsInRoot.size,
                 grabOffset = fingerInRoot - iconBoundsInRoot.topLeft,
                 fingerInRoot = fingerInRoot,
+                label = label,
             ),
         )
     }

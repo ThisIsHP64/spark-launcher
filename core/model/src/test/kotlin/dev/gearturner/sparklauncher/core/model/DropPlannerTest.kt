@@ -114,4 +114,62 @@ class DropPlannerTest {
         assertEquals(listOf(moved), diff.updates)
         assertEquals(listOf(2L), diff.deletes)
     }
+
+    private fun folderWith(vararg names: String): List<WorkspaceItem> {
+        val f = folder(100, CellPlacement(0, 0, 0))
+        return listOf(f) + names.mapIndexed { rank, name ->
+            app(rank + 1L, name, Container.Folder(100), CellPlacement(0, rank, 0))
+        }
+    }
+
+    private fun order(items: List<WorkspaceItem>, folderId: Long = 100) =
+        items.filter { it.container == Container.Folder(folderId) }.sortedBy { it.placement.cellX }.map { it.app!!.packageName.removePrefix("com.example.") }
+
+    @Test
+    fun movingWithinAFolderShiftsTheOthers() {
+        val items = folderWith("a", "b", "c", "d")
+        assertEquals(listOf("b", "c", "a", "d"), order(moveWithinFolder(items, 1, 2)))
+        assertEquals(listOf("d", "a", "b", "c"), order(moveWithinFolder(items, 4, 0)))
+    }
+
+    @Test
+    fun outOfRangeRanksAreClampedAndRanksStayContiguous() {
+        val after = moveWithinFolder(folderWith("a", "b", "c"), 1, 99)
+        assertEquals(listOf("b", "c", "a"), order(after))
+        assertEquals(listOf(0, 1, 2), after.filter { it.container == Container.Folder(100) }.map { it.placement.cellX }.sorted())
+        assertEquals(listOf("a", "b", "c"), order(moveWithinFolder(folderWith("a", "b", "c"), 1, -5)))
+    }
+
+    @Test
+    fun itemsOutsideTheFolderAreUntouched() {
+        val outside = app(50, "x", placement = CellPlacement(0, 2, 2))
+        val otherFolder = app(60, "y", Container.Folder(200), CellPlacement(0, 0, 0))
+        val items = folderWith("a", "b") + outside + otherFolder
+        val after = moveWithinFolder(items, 2, 0)
+        assertEquals(outside, after.first { it.id == 50L })
+        assertEquals(otherFolder, after.first { it.id == 60L })
+        assertEquals(items, moveWithinFolder(items, 50, 0))
+    }
+
+    @Test
+    fun insertingIntoAFolderPlacesTheAppAtTheChosenSpot() {
+        val outside = app(50, "x", placement = CellPlacement(0, 3, 3))
+        val after = insertIntoFolder(folderWith("a", "b", "c") + outside, 50, 100, 1)
+        assertEquals(listOf("a", "x", "b", "c"), order(after))
+        assertEquals(Container.Folder(100), after.first { it.id == 50L }.container)
+    }
+
+    @Test
+    fun insertingPastTheEndAppends() {
+        val outside = app(50, "x", placement = CellPlacement(0, 3, 3))
+        assertEquals(listOf("a", "b", "x"), order(insertIntoFolder(folderWith("a", "b") + outside, 50, 100, 99)))
+    }
+
+    @Test
+    fun foldersWidgetsAndMissingFoldersAreNotInserted() {
+        val nested = folder(60, CellPlacement(0, 2, 2))
+        val items = folderWith("a") + nested
+        assertEquals(items, insertIntoFolder(items, 60, 100, 0))
+        assertEquals(items, insertIntoFolder(items, 1, 999, 0))
+    }
 }

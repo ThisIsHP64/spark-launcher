@@ -27,9 +27,11 @@ class SettingsActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             val settings by viewModel.settings.collectAsStateWithLifecycle()
+            val previewSeed by viewModel.previewSeed.collectAsStateWithLifecycle()
             val loaded = settings ?: return@setContent
-            // settings are themed by themselves, so every change previews right here
-            SparkTheme(loaded) {
+            // settings are themed by themselves, so every change previews right here, including a
+            // hue still being dragged that has not been saved yet
+            SparkTheme(previewSeed?.let { loaded.copy(seedColor = it) } ?: loaded) {
                 CompositionLocalProvider(LocalIconRepository provides iconRepository) {
                     ProvideIconStyle(loaded) {
                         SettingsScreen(loaded, viewModel, onBack = ::finish)

@@ -42,9 +42,20 @@ class BuildStateTest {
 
     @Test
     fun itemsOutsideTheCurrentGridAreHidden() {
-        val items = listOf(item(1, "a", Container.Desktop, CellPlacement(0, 6, 0)))
+        // placements are in half cells, so column 8 is just past a 4 column grid
+        val items = listOf(item(1, "a", Container.Desktop, CellPlacement(0, 8, 0, 2, 2)))
         val state = buildState(items, listOf(info("a")), LauncherSettings(homeColumns = 4))
         assertEquals(0, state.pages.single().size)
+    }
+
+    @Test
+    fun itemsInTheLastColumnAndRowStayVisible() {
+        val items = listOf(
+            item(1, "a", Container.Desktop, CellPlacement(0, 6, 8, 2, 2)),
+            item(2, "b", Container.Desktop, CellPlacement(0, 5, 3, 2, 2)),
+        )
+        val state = buildState(items, listOf(info("a"), info("b")), LauncherSettings(homeColumns = 4, homeRows = 5))
+        assertEquals(listOf(1L, 2L), state.pages.single().map { it.itemId })
     }
 
     @Test

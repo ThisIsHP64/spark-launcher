@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
@@ -31,13 +33,14 @@ enum class DragOrigin { Home, Folder, Drawer, WidgetPicker }
 
 @Immutable
 sealed interface DragPayload {
-    /** an item already on home, in the dock or in a folder; widgets carry their size in cells */
+    /** an item already on home, in the dock or in a folder; widgets carry their size in half cells */
     data class Existing(
         val itemId: Long,
         val app: AppKey?,
         val canUninstall: Boolean,
         val spanX: Int = 1,
         val spanY: Int = 1,
+        val isWidget: Boolean = false,
     ) : DragPayload
 
     /** an app pulled out of the drawer, which becomes a new home item */
@@ -71,6 +74,10 @@ data class DragSession(
     /** where in the icon the finger grabbed it, so the icon does not jump under the finger */
     val grabOffset: Offset,
     val fingerInRoot: Offset,
+    /** drawn instead of [icon] for items with no single bitmap, such as a folder's app preview */
+    val preview: (@Composable () -> Unit)? = null,
+    /** the name under an app or folder, carried along so the whole tile moves together */
+    val label: String? = null,
 )
 
 /** decides what a released drag does; the home screen installs one while it is showing */
@@ -115,9 +122,12 @@ class DragController {
 
 val LocalDragController = staticCompositionLocalOf<DragController?> { null }
 
-/** draws the dragged icon above everything, slightly enlarged the way the pixel launcher lifts it */
+/**
+ * draws the dragged icon above everything, slightly enlarged the way the pixel launcher lifts it.
+ * [showLabels] follows the home label setting, since the item is always dropped onto home.
+ */
 @Composable
-fun DragLayer(controller: DragController, modifier: Modifier = Modifier) {
+fun DragLayer(controller: DragController, showLabels: Boolean, modifier: Modifier = Modifier) {
     val session = controller.session ?: return
     val widthDp = with(LocalDensity.current) { session.sizePx.width.toDp() }
     val heightDp = with(LocalDensity.current) { session.sizePx.height.toDp() }
@@ -134,10 +144,13 @@ fun DragLayer(controller: DragController, modifier: Modifier = Modifier) {
                 shadowElevation = 12f
             }
         val icon = session.icon
+        val preview = session.preview
         if (icon != null) {
             Image(bitmap = icon, contentDescription = null, modifier = lifted)
+        } else if (preview != null) {
+            Box(modifier = lifted) { preview() }
         } else {
-            // folders and widgets have no single bitmap, so a soft plate stands in while they move
+            // widgets have no single bitmap, so a soft plate stands in while they move
             Box(
                 modifier = lifted.background(
                     MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.85f),
@@ -145,7 +158,29 @@ fun DragLayer(controller: DragController, modifier: Modifier = Modifier) {
                 ),
             )
         }
+        val label = session.label
+        if (showLabels && label != null) {
+            val gap = with(LocalDensity.current) { LABEL_GAP.toPx() }
+            val labelWidthPx = with(LocalDensity.current) { LABEL_WIDTH.toPx() }
+            Box(
+                modifier = Modifier
+                    .offset {
+                        // sits under the lifted icon, which grows around its own center
+                        val topLeft = session.fingerInRoot - session.grabOffset
+                        val iconBottom = topLeft.y + session.sizePx.height * (1f + LIFT_SCALE) / 2f
+                        val left = topLeft.x + session.sizePx.width / 2f - labelWidthPx / 2f
+                        IntOffset(left.roundToInt(), (iconBottom + gap).roundToInt())
+                    }
+                    .width(LABEL_WIDTH),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                IconLabel(label, LabelStyle.OnWallpaper)
+            }
+        }
     }
 }
+
+private val LABEL_GAP = 6.dp
+private val LABEL_WIDTH = 96.dp
 
 private const val LIFT_SCALE = 1.1f

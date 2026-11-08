@@ -19,6 +19,7 @@ import androidx.core.view.WindowCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.gearturner.sparklauncher.core.ui.DragController
 import dev.gearturner.sparklauncher.core.ui.DragLayer
 import dev.gearturner.sparklauncher.core.ui.DrawerController
@@ -87,7 +88,8 @@ fun LauncherRoot(homePresses: Flow<Unit>, onOpenSettings: () -> Unit) {
                     homeViewModel.addWidget(provider.key, span, binder)
                 },
             )
-            DragLayer(dragController)
+            val showHomeLabels = homeViewModel.state.collectAsStateWithLifecycle().value.settings.showHomeLabels
+            DragLayer(dragController, showLabels = showHomeLabels)
         }
     }
 }

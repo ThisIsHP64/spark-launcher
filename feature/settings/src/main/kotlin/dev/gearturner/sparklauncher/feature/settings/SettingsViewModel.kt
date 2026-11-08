@@ -1,5 +1,8 @@
 package dev.gearturner.sparklauncher.feature.settings
 
+import android.content.Intent
+import dev.gearturner.sparklauncher.core.apps.NotificationDots
+
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -23,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -33,6 +37,7 @@ class SettingsViewModel @Inject constructor(
     private val workspace: WorkspaceRepository,
     apps: AppsRepository,
     private val iconPacks: IconPackRepository,
+    private val notificationDots: NotificationDots,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -44,9 +49,17 @@ class SettingsViewModel @Inject constructor(
     private val _contactsGranted = MutableStateFlow(false)
     val contactsGranted: StateFlow<Boolean> = _contactsGranted
 
-    /** both can change in system settings while spark is in the background */
+    private val _dotsAccess = MutableStateFlow(true)
+
+    /** whether notification access is granted, which dots need; starts true so no prompt flashes */
+    val dotsAccess: StateFlow<Boolean> = _dotsAccess
+
+    fun notificationAccessIntent(): Intent = notificationDots.settingsIntent()
+
+    /** these can all change in system settings while spark is in the background */
     fun refreshSystemState() {
         _serviceEnabled.value = SparkAccessibility.isEnabled(context)
+        _dotsAccess.value = notificationDots.isAccessGranted()
         _contactsGranted.value =
             ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
     }
@@ -81,6 +94,28 @@ class SettingsViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val _previewSeed = MutableStateFlow<Int?>(null)
+
+    /** a seed color shown while the hue slider moves, before it is saved; null when nothing is previewing */
+    val previewSeed: StateFlow<Int?> = _previewSeed
+
+    fun previewSeed(color: Int) {
+        _previewSeed.value = color
+    }
+
+    /**
+     * saves the chosen seed and drops the preview only once the saved value is what settings report,
+     * so the screen never flashes back to the old color between the two
+     */
+    fun commitSeed(color: Int) {
+        _previewSeed.value = color
+        viewModelScope.launch {
+            repository.update { it.copy(seedColor = color) }
+            repository.settings.first { it.seedColor == (color or OPAQUE) }
+            if (_previewSeed.value == color) _previewSeed.value = null
+        }
+    }
+
     fun update(transform: (LauncherSettings) -> LauncherSettings) {
         viewModelScope.launch { repository.update(transform) }
     }
@@ -96,5 +131,7 @@ class SettingsViewModel @Inject constructor(
 
     private companion object {
         const val PREVIEW_COUNT = 5
+        // settings store seeds fully opaque, so the comparison has to match that
+        const val OPAQUE: Int = 0xFF000000.toInt()
     }
 }
