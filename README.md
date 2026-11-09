@@ -12,6 +12,7 @@ Spark Launcher is my take on the perfect Android launcher: fast and clean in the
 
 - **No internet permission.** Spark cannot send anything off your device. A unit test fails the build if the internet permission, or any of a few other tracking related permissions, ever appear in the merged manifest.
 - No ads, analytics, tracking, crash reporters, Google Play Services, paywalls, or AI features.
+- Release builds write nothing to the system log. The build strips every logging call, so nothing about your apps can show up in logcat.
 - Optional access (contacts in search, notification access for dots, and the gesture accessibility service) is only requested when you enable the feature that needs it.
 - Notification dots only check which apps have notifications. Spark never reads or keeps what they say. The accessibility service is configured so it cannot read the screen.
 - The only other permissions are two normal ones granted at install. One lets a gesture open the notification shade, and the other hands uninstalls to the system's own confirmation screen.
@@ -25,9 +26,11 @@ Spark Launcher is my take on the perfect Android launcher: fast and clean in the
 - Custom home grids from 3 to 8 columns and 3 to 9 rows, drawer grids from 3 to 7 columns, icon sizes from 70 to 130 percent, and labels that can be hidden or wrapped onto two lines
 - Optional half cell (subgrid) positioning, so icons and widgets can sit between grid cells
 - Folders with multiple pages, inline renaming, and drag and drop in and out
-- Long press menus with app shortcuts, rename, change icon, app info, uninstall, and remove, plus a menu on empty space for widgets, wallpaper, and Spark Settings
+- Long press menus with app shortcuts, swipe actions, rename, change icon, app info, uninstall, and remove, plus a menu on empty space for widgets, wallpaper, and Spark Settings
+- Per icon swipe actions: give any app icon its own swipe up and swipe down, each opening an app, one of an app's shortcuts, or a pinned shortcut such as a website. Icons without a swipe action keep the normal home swipes, so your gestures are never blocked
 - Notification dots that follow each app's own notification settings
-- Apps can pin their shortcuts and widgets to your home screen, and you confirm each one first
+- Apps can pin their shortcuts and widgets to your home screen, and you confirm each one first. A pinned shortcut can also be kept off the home screen and used only as a swipe action
+- A pinned shortcuts page in settings lists every shortcut apps have pinned to Spark, shows where each one is used, and lets you remove one so the app that made it can delete it
 - A starter dock built from your default phone, browser, and camera apps
 - Apps from other profiles on your phone, such as a work profile or private space, appear alongside your other apps with the system's profile badge, and they keep their spots on home while a profile is paused
 
