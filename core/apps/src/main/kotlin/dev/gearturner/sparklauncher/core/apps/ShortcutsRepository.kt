@@ -126,7 +126,7 @@ class ShortcutsRepository @Inject constructor(
     }
 
     /**
-     * every enabled shortcut of every app in every profile, for search. it is read on demand rather
+     * every enabled, labelled shortcut of every app in every profile, for search and the swipe picker. it is read on demand rather
      * than kept in memory because only an open search needs it.
      */
     suspend fun allLaunchable(): List<AppShortcut> = withContext(Dispatchers.IO) {
@@ -136,7 +136,7 @@ class ShortcutsRepository @Inject constructor(
         )
         launcherApps.profiles.flatMap { user ->
             val serial = userManager.getSerialNumberForUser(user)
-            queryOrEmpty(query, user).filter { it.isEnabled }.map { it.toModel(serial) }
+            queryOrEmpty(query, user).filter { it.isEnabled && hasUsableLabel(it.shortLabel, it.longLabel) }.map { it.toModel(serial) }
         }.distinctBy { it.key }
     }
 
@@ -183,6 +183,7 @@ class ShortcutsRepository @Inject constructor(
         longLabel = longLabel?.toString(),
         rank = rank,
         isEnabled = isEnabled,
+        hasLabel = hasUsableLabel(shortLabel, longLabel),
     )
 
     private companion object {
@@ -191,6 +192,14 @@ class ShortcutsRepository @Inject constructor(
         const val MAX_MENU_SHORTCUTS = 4
     }
 }
+
+/**
+ * the system leaves both labels empty for a shortcut whose app cannot resolve its strings, such as
+ * an app that is frozen in a work profile. showing its raw id would be noise, so such shortcuts are
+ * left out of lists, and a shortcut the user placed keeps its own saved title instead.
+ */
+internal fun hasUsableLabel(shortLabel: CharSequence?, longLabel: CharSequence?): Boolean =
+    !shortLabel.isNullOrBlank() || !longLabel.isNullOrBlank()
 
 /**
  * the pinned shortcut with this package and id, straight from the system. kept apart from the

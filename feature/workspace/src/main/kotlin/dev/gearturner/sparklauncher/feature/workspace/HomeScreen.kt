@@ -80,7 +80,9 @@ import dev.gearturner.sparklauncher.core.ui.DragPayload
 import dev.gearturner.sparklauncher.core.ui.DragSession
 import dev.gearturner.sparklauncher.core.ui.DropHandler
 import dev.gearturner.sparklauncher.core.ui.DrawerController
+import dev.gearturner.sparklauncher.core.ui.IconSwipeClaim
 import dev.gearturner.sparklauncher.core.ui.LocalDragController
+import dev.gearturner.sparklauncher.core.ui.LocalIconSwipeClaim
 import dev.gearturner.sparklauncher.core.ui.LocalHomeIconRegistry
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -278,12 +280,17 @@ fun HomeScreen(
             )
         }
     }
+    // lets an icon with a swipe action tell the swipe detector below which directions it owns
+    val iconSwipeClaim = remember { IconSwipeClaim() }
     Box(
         modifier = modifier
             .fillMaxSize()
             .onGloballyPositioned { rootOrigin = it.positionInRoot() },
     ) {
-        CompositionLocalProvider(LocalDropHover provides hoverTarget?.itemId) {
+        CompositionLocalProvider(
+            LocalDropHover provides hoverTarget?.itemId,
+            LocalIconSwipeClaim provides iconSwipeClaim,
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -315,6 +322,7 @@ fun HomeScreen(
                                 tile is WidgetTile && geometry.rectOf(tile.placement)?.contains(inRoot) == true
                             }
                         },
+                        iconSwipes = iconSwipeClaim,
                         onGesture = runGesture,
                     )
                     .statusBarsPadding()
@@ -538,6 +546,7 @@ private fun HomeEvents(viewModel: HomeViewModel) {
                     },
                 )
                 HomeEvent.DropRefused -> resources.getString(R.string.workspace_drop_refused)
+                HomeEvent.SwipeNotSaved -> resources.getString(R.string.workspace_swipe_not_saved)
             }
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }

@@ -130,6 +130,35 @@ class WorkspaceRepositoryTest {
     }
 
     @Test
+    fun removingAShortcutClearsItFromEveryLayoutAndLeavesOthers() = runTest {
+        val owner = app("maps")
+        val home = ShortcutKey(owner.packageName, "home", 0)
+        val work = ShortcutKey(owner.packageName, "work", 0)
+        repository.addShortcutToDesktop(home, owner, "Home", 4, 5)
+        repository.addShortcutToDesktop(work, owner, "Work", 4, 5)
+        mode.value = LayoutId.HOME
+        repository.addShortcutToDesktop(home, owner, "Home", 4, 5)
+        assertEquals(setOf(home, work), repository.placedShortcutKeys.first())
+
+        val removed = repository.removeShortcut(home)
+
+        assertEquals(2, removed.size)
+        assertEquals(setOf(work), repository.placedShortcutKeys.first())
+        assertEquals(setOf("work"), repository.pinnedShortcutIds(owner.packageName, 0))
+        assertTrue(repository.items.first().isEmpty())
+        mode.value = LayoutId.DRAWER
+        assertEquals(listOf(work), repository.items.first().mapNotNull { it.shortcutKey })
+    }
+
+    @Test
+    fun removingAShortcutThatIsNotPlacedChangesNothing() = runTest {
+        val owner = app("maps")
+        repository.addShortcutToDesktop(ShortcutKey(owner.packageName, "home", 0), owner, "Home", 4, 5)
+        assertTrue(repository.removeShortcut(ShortcutKey(owner.packageName, "other", 0)).isEmpty())
+        assertEquals(1, repository.items.first().size)
+    }
+
+    @Test
     fun droppingAppOnAppBuildsAFolderAndDraggingOneOutDissolvesIt() = runTest {
         val a = (repository.addAppToDesktop(app("a"), 4, 5) as AddResult.Added).item
         val b = (repository.addAppToDesktop(app("b"), 4, 5) as AddResult.Added).item

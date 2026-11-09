@@ -14,6 +14,12 @@ import dev.gearturner.sparklauncher.core.model.AppInfo
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.gearturner.sparklauncher.core.apps.AppsRepository
+import dev.gearturner.sparklauncher.core.apps.ShortcutsRepository
+import dev.gearturner.sparklauncher.core.data.ShortcutPlacement
+import dev.gearturner.sparklauncher.core.model.ShortcutKey
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
 import dev.gearturner.sparklauncher.core.data.AppOverridesRepository
 import dev.gearturner.sparklauncher.core.data.SettingsRepository
 import dev.gearturner.sparklauncher.core.model.AppOverride
@@ -42,6 +48,8 @@ class SettingsViewModel @Inject constructor(
     private val iconPacks: IconPackRepository,
     private val notificationDots: NotificationDots,
     private val overrides: AppOverridesRepository,
+    private val shortcuts: ShortcutsRepository,
+    private val shortcutPlacement: ShortcutPlacement,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -68,12 +76,10 @@ class SettingsViewModel @Inject constructor(
             ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
     }
 
-    /** every launchable app by name, for choosing what a gesture opens */
-    val allApps: StateFlow<List<AppInfo>> = apps.apps.filterNotNull()
-        .map { list ->
-            val collator = Collator.getInstance()
-            list.sortedWith { a, b -> collator.compare(a.label, b.label) }
-        }
+    /** every launchable app that is not hidden, by name, for choosing what a gesture opens */
+    val allApps: StateFlow<List<AppInfo>> = combine(apps.apps.filterNotNull(), overrides.overrides) { list, appOverrides ->
+        pickableAppsOf(list, appOverrides, Collator.getInstance())
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** apps hidden from the drawer, by the name the drawer would show; null until apps have loaded */
@@ -81,9 +87,52 @@ class SettingsViewModel @Inject constructor(
         hiddenAppsOf(installed, appOverrides, Collator.getInstance())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    private val _hiddenUnlocked = MutableStateFlow(false)
+
+    /**
+     * true once the user has passed the lock this time settings was on screen. it only guards a page
+     * restored from saved state, since every entry to the page asks again, and it is cleared whenever
+     * settings leaves the screen.
+     */
+    val hiddenUnlocked: StateFlow<Boolean> = _hiddenUnlocked
+
+    fun unlockHidden() {
+        _hiddenUnlocked.value = true
+    }
+
+    fun lockHidden() {
+        _hiddenUnlocked.value = false
+    }
+
     /** puts an app back in the drawer; in home only mode it also returns to the home pages */
     fun unhide(key: AppKey) {
         viewModelScope.launch { overrides.setHidden(key, false) }
+    }
+
+    /** every shortcut spark holds pinned and where it is used; null until apps have loaded */
+    val pinnedShortcuts: StateFlow<List<PinnedShortcut>?> = combine(
+        shortcuts.pinned,
+        workspace.placedShortcutKeys,
+        overrides.overrides,
+        apps.apps.filterNotNull(),
+    ) { pinned, placed, appOverrides, installed ->
+        pinnedShortcutsOf(pinned, placed, appOverrides, installed, Collator.getInstance())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** the system only lists pinned shortcuts to the default home app, so an empty list may mean no access */
+    val hasShortcutAccess: Boolean get() = shortcuts.hasHostPermission
+
+    private val unpinFailures = Channel<Unit>(Channel.BUFFERED)
+
+    /** fires when the system refused to let go of a deleted shortcut */
+    val unpinFailed: Flow<Unit> = unpinFailures.receiveAsFlow()
+
+    /** removes the shortcut from home and any swipe that uses it, then lets the system release it */
+    fun deleteShortcut(key: ShortcutKey) {
+        viewModelScope.launch {
+            if (!shortcutPlacement.deleteShortcut(key)) unpinFailures.trySend(Unit)
+            shortcuts.refresh()
+        }
     }
 
     private val _packs = MutableStateFlow<List<IconPackInfo>?>(null)
@@ -149,6 +198,11 @@ class SettingsViewModel @Inject constructor(
         const val OPAQUE: Int = 0xFF000000.toInt()
     }
 }
+
+/** the apps a settings picker may offer: hidden apps stay secret outside the locked hidden apps page */
+internal fun pickableAppsOf(installed: List<AppInfo>, overrides: Map<AppKey, AppOverride>, collator: Collator): List<AppInfo> =
+    installed.filterNot { overrides[it.key]?.hidden == true }
+        .sortedWith { a, b -> collator.compare(a.label, b.label) }
 
 /** an app hidden from the drawer, as the hidden apps list shows it */
 data class HiddenApp(val key: AppKey, val label: String)

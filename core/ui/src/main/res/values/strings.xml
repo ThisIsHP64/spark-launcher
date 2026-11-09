@@ -14,6 +14,19 @@
     <string name="ui_icon_picker_search">Search icons</string>
     <string name="ui_close">Close</string>
     <string name="ui_choice_search">Search</string>
+    <string name="ui_swipe_title">Swipe actions for %1$s</string>
+    <string name="ui_swipe_up">Swipe up</string>
+    <string name="ui_swipe_down">Swipe down</string>
+    <string name="ui_swipe_none">None</string>
+    <string name="ui_swipe_kind_app">Open an app</string>
+    <string name="ui_swipe_kind_app_shortcut">Open an app shortcut</string>
+    <string name="ui_swipe_kind_pinned_shortcut">Open a pinned shortcut</string>
+    <string name="ui_swipe_pick_app">Pick an app</string>
+    <string name="ui_swipe_pick_app_shortcut">Pick an app shortcut</string>
+    <string name="ui_swipe_pick_pinned_shortcut">Pick a pinned shortcut</string>
+    <string name="ui_swipe_no_pinned_shortcuts">No pinned shortcuts yet. Pin one from another app, such as a website from your browser, and it will show up here.</string>
+    <string name="ui_swipe_no_shortcuts">No shortcuts found</string>
+    <string name="ui_swipe_needs_default">Shortcuts are only available while Spark is your default home app</string>
     <string name="ui_has_notifications">Has notifications</string>
     <string name="ui_menu">Menu</string>
 </resources>

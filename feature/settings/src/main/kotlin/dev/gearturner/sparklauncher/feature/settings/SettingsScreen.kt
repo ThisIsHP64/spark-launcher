@@ -29,6 +29,15 @@ import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Palette
+import android.content.Context
+import android.content.ContextWrapper
+import android.view.WindowManager
+import android.widget.Toast
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.res.pluralStringResource
@@ -113,7 +122,7 @@ private val SwatchColors = listOf(
     0xFFEF6C00, 0xFFD84315, 0xFFC2185B, 0xFF8E24AA, 0xFF5E35B1, 0xFF6D4C41,
 ).map { it.toInt() }
 
-private enum class SettingsPage { MAIN, LOOK, HOME, DRAWER, HIDDEN_APPS, GESTURES, SEARCH, ABOUT, LIBRARIES, LICENSE }
+private enum class SettingsPage { MAIN, LOOK, HOME, DRAWER, HIDDEN_APPS, PINNED_SHORTCUTS, GESTURES, SEARCH, ABOUT, LIBRARIES, LICENSE }
 
 /** a short list of sections, each its own page, so no single page grows into a wall of options */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -128,6 +137,47 @@ internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewM
     }
     BackHandler(enabled = parent != null) { parent?.let { page = it } }
     val hiddenApps by viewModel.hiddenApps.collectAsStateWithLifecycle()
+    val unlocked by viewModel.hiddenUnlocked.collectAsStateWithLifecycle()
+    val pinnedShortcuts by viewModel.pinnedShortcuts.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val resources = LocalResources.current
+    LaunchedEffect(viewModel, resources) {
+        viewModel.unpinFailed.collect {
+            Toast.makeText(context, resources.getString(R.string.settings_pinned_unpin_failed), Toast.LENGTH_LONG).show()
+        }
+    }
+    val lock = remember(context) { HiddenAppsLock(context) }
+    DisposableEffect(lock) { onDispose(lock::cancel) }
+    // every entry to the hidden apps page asks again; being unlocked only vets a page restored from saved state
+    val openHidden: () -> Unit = {
+        lock.authenticate(
+            title = resources.getString(R.string.settings_hidden_apps_lock_title),
+            subtitle = resources.getString(R.string.settings_hidden_apps_lock_subtitle),
+        ) { result ->
+            when (result) {
+                LockResult.Granted -> {
+                    viewModel.unlockHidden()
+                    page = SettingsPage.HIDDEN_APPS
+                }
+                LockResult.Unavailable ->
+                    Toast.makeText(context, resources.getString(R.string.settings_hidden_apps_lock_unavailable), Toast.LENGTH_LONG).show()
+                LockResult.Failed ->
+                    Toast.makeText(context, resources.getString(R.string.settings_hidden_apps_lock_failed), Toast.LENGTH_LONG).show()
+                LockResult.Cancelled -> Unit
+            }
+        }
+    }
+    // a page restored after the process died or settings was backgrounded has not passed the lock
+    LaunchedEffect(unlocked, page) {
+        if (!unlocked && page == SettingsPage.HIDDEN_APPS) page = SettingsPage.DRAWER
+    }
+    // the list names hidden apps, so keep it out of screenshots and the recents thumbnail
+    val showingHidden = page == SettingsPage.HIDDEN_APPS
+    DisposableEffect(showingHidden, context) {
+        val window = context.findActivity()?.window
+        if (showingHidden) window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE) }
+    }
     // only the main list outlives its page, so coming back keeps its scroll position
     val mainListState = rememberLazyListState()
     val motion = MaterialTheme.motionScheme
@@ -180,9 +230,10 @@ internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewM
                 when (shown) {
                     SettingsPage.MAIN -> mainPage { page = it }
                     SettingsPage.LOOK -> lookPage(settings, viewModel)
-                    SettingsPage.HOME -> homePage(settings, viewModel)
-                    SettingsPage.DRAWER -> drawerPage(settings, viewModel, hiddenApps?.size) { page = SettingsPage.HIDDEN_APPS }
-                    SettingsPage.HIDDEN_APPS -> hiddenAppsPage(hiddenApps, viewModel::unhide)
+                    SettingsPage.HOME -> homePage(settings, viewModel, pinnedShortcuts?.size) { page = SettingsPage.PINNED_SHORTCUTS }
+                    SettingsPage.DRAWER -> drawerPage(settings, viewModel, openHidden)
+                    SettingsPage.HIDDEN_APPS -> hiddenAppsPage(hiddenApps.takeIf { unlocked }, viewModel::unhide)
+                    SettingsPage.PINNED_SHORTCUTS -> pinnedShortcutsPage(pinnedShortcuts, viewModel.hasShortcutAccess, viewModel::deleteShortcut)
                     SettingsPage.GESTURES -> gesturesPage(settings, viewModel)
                     SettingsPage.SEARCH -> searchPage(settings, viewModel)
                     SettingsPage.ABOUT -> aboutPage(onOpenLicense = openLicense, onOpenLibraries = { page = SettingsPage.LIBRARIES })
@@ -198,7 +249,7 @@ internal fun SettingsScreen(settings: LauncherSettings, viewModel: SettingsViewM
 /** how many steps from the main page, which decides the slide direction */
 private fun SettingsPage.depth(license: LicenseKind): Int = when (this) {
     SettingsPage.MAIN -> 0
-    SettingsPage.LIBRARIES, SettingsPage.HIDDEN_APPS -> 2
+    SettingsPage.LIBRARIES, SettingsPage.HIDDEN_APPS, SettingsPage.PINNED_SHORTCUTS -> 2
     SettingsPage.LICENSE -> if (license == LicenseKind.GPL3) 2 else 3
     else -> 1
 }
@@ -208,6 +259,7 @@ private fun SettingsPage.parent(license: LicenseKind): SettingsPage? = when (thi
     SettingsPage.MAIN -> null
     SettingsPage.LIBRARIES -> SettingsPage.ABOUT
     SettingsPage.HIDDEN_APPS -> SettingsPage.DRAWER
+    SettingsPage.PINNED_SHORTCUTS -> SettingsPage.HOME
     SettingsPage.LICENSE -> if (license == LicenseKind.GPL3) SettingsPage.ABOUT else SettingsPage.LIBRARIES
     else -> SettingsPage.MAIN
 }
@@ -219,6 +271,7 @@ private fun title(page: SettingsPage, license: LicenseKind): String = when (page
     SettingsPage.HOME -> stringResource(R.string.settings_page_home)
     SettingsPage.DRAWER -> stringResource(R.string.settings_page_drawer)
     SettingsPage.HIDDEN_APPS -> stringResource(R.string.settings_hidden_apps)
+    SettingsPage.PINNED_SHORTCUTS -> stringResource(R.string.settings_pinned_shortcuts)
     SettingsPage.GESTURES -> stringResource(R.string.settings_page_gestures)
     SettingsPage.SEARCH -> stringResource(R.string.settings_page_search)
     SettingsPage.ABOUT -> stringResource(R.string.settings_page_about)
@@ -344,7 +397,12 @@ internal fun CardDivider() {
     )
 }
 
-private fun LazyListScope.homePage(settings: LauncherSettings, viewModel: SettingsViewModel) {
+private fun LazyListScope.homePage(
+    settings: LauncherSettings,
+    viewModel: SettingsViewModel,
+    pinnedCount: Int?,
+    onOpenPinned: () -> Unit,
+) {
     item { SectionHeader(stringResource(R.string.settings_section_layout)) }
     item {
         SettingsCard {
@@ -378,6 +436,18 @@ private fun LazyListScope.homePage(settings: LauncherSettings, viewModel: Settin
         }
     }
     item { NotificationAccessCard(settings, viewModel) }
+
+    item { SectionHeader(stringResource(R.string.settings_pinned_shortcuts)) }
+    item {
+        SettingsCard {
+            val summary = when (pinnedCount) {
+                null -> ""
+                0 -> stringResource(R.string.settings_pinned_none)
+                else -> pluralStringResource(R.plurals.settings_pinned_count, pinnedCount, pinnedCount)
+            }
+            PageEntry(Icons.Outlined.PushPin, stringResource(R.string.settings_pinned_shortcuts), summary, onOpenPinned)
+        }
+    }
 }
 
 /** the grid controls under the preview they change, so a drag or a tap is seen as it happens */
@@ -413,7 +483,6 @@ private fun HomeGridCard(settings: LauncherSettings, viewModel: SettingsViewMode
 private fun LazyListScope.drawerPage(
     settings: LauncherSettings,
     viewModel: SettingsViewModel,
-    hiddenCount: Int?,
     onOpenHidden: () -> Unit,
 ) {
     item { SectionHeader(stringResource(R.string.settings_section_grid)) }
@@ -422,12 +491,13 @@ private fun LazyListScope.drawerPage(
     item { SectionHeader(stringResource(R.string.settings_hidden_apps)) }
     item {
         SettingsCard {
-            val summary = when (hiddenCount) {
-                null -> ""
-                0 -> stringResource(R.string.settings_hidden_apps_none)
-                else -> pluralStringResource(R.plurals.settings_hidden_apps_count, hiddenCount, hiddenCount)
-            }
-            PageEntry(Icons.Outlined.VisibilityOff, stringResource(R.string.settings_hidden_apps), summary, onOpenHidden)
+            // no count here, since even how many apps are hidden is something the lock keeps private
+            PageEntry(
+                Icons.Outlined.VisibilityOff,
+                stringResource(R.string.settings_hidden_apps),
+                stringResource(R.string.settings_hidden_apps_summary),
+                onOpenHidden,
+            )
         }
     }
 }
@@ -903,4 +973,13 @@ internal fun SwitchRow(
         Spacer(modifier = Modifier.size(16.dp))
         Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }
+}
+
+private fun Context.findActivity(): android.app.Activity? {
+    var current: Context? = this
+    while (current is ContextWrapper) {
+        if (current is android.app.Activity) return current
+        current = current.baseContext
+    }
+    return null
 }

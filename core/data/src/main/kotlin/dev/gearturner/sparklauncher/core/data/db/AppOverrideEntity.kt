@@ -12,4 +12,9 @@ data class AppOverrideEntity(
     @ColumnInfo(name = "custom_label") val customLabel: String? = null,
     @ColumnInfo(name = "icon_pack") val iconPack: String? = null,
     @ColumnInfo(name = "icon_drawable") val iconDrawable: String? = null,
+    // swipe targets are stored as json so a new target kind never needs another migration
+    @ColumnInfo(name = "swipe_up") val swipeUp: String? = null,
+    @ColumnInfo(name = "swipe_down") val swipeDown: String? = null,
+    // set by removing an icon in home only mode; unlike hidden, the app stays visible to search
+    @ColumnInfo(name = "home_removed", defaultValue = "0") val homeRemoved: Boolean = false,
 )

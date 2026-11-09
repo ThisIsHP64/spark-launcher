@@ -18,6 +18,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import dev.gearturner.sparklauncher.core.model.Gesture
 import dev.gearturner.sparklauncher.core.ui.DrawerController
+import dev.gearturner.sparklauncher.core.ui.IconSwipeClaim
+import dev.gearturner.sparklauncher.core.ui.MAX_SIDEWAYS_RATIO
+import dev.gearturner.sparklauncher.core.ui.swipeDirection
 import kotlin.math.abs
 
 /**
@@ -34,6 +37,7 @@ internal fun Modifier.homeSwipes(
     enabled: () -> Boolean,
     swipeUpDragsDrawer: Boolean,
     startsOnWidget: (Offset) -> Boolean,
+    iconSwipes: IconSwipeClaim?,
     onGesture: (Gesture) -> Unit,
 ): Modifier {
     val density = LocalDensity.current
@@ -44,6 +48,7 @@ internal fun Modifier.homeSwipes(
     val fire by rememberUpdatedState(onGesture)
     val isEnabled by rememberUpdatedState(enabled)
     val onWidget by rememberUpdatedState(startsOnWidget)
+    val iconClaim by rememberUpdatedState(iconSwipes)
     // the detector always stays attached and checks [isEnabled] instead: removing a pointer input
     // node mid gesture makes compose cancel the touch for everything under it, which would end the
     // very icon drag that turned this detector off. it is a function read on every event, because a
@@ -72,7 +77,9 @@ internal fun Modifier.homeSwipes(
                     moved.forEach { if (it.id !in starts) starts[it.id] = it.position }
                     val travel = averageTravel(moved.map { it.position - (starts[it.id] ?: it.position) })
                     if (travel.getDistance() > viewConfiguration.touchSlop) {
-                        if (abs(travel.x) <= abs(travel.y) * MAX_SIDEWAYS_RATIO) claimed = true else mode = Mode.Ignored
+                        // an icon with an action for this direction takes the swipe, so home stays out of it
+                        val iconOwns = iconOwnsSwipe(travel, viewConfiguration.touchSlop, moved.size, iconClaim)
+                        if (!iconOwns && abs(travel.x) <= abs(travel.y) * MAX_SIDEWAYS_RATIO) claimed = true else mode = Mode.Ignored
                     }
                 }
                 if (claimed && mode != Mode.Ignored) early.changes.forEach { if (it.pressed) it.consume() }
@@ -140,12 +147,19 @@ internal fun Modifier.homeSwipes(
 
 private enum class Mode { Undecided, Drawer, Fired, Ignored }
 
+/**
+ * whether the pressed icon has an action for this swipe. only a one finger vertical swipe can belong
+ * to an icon, and an empty or missing claim never does, which keeps every default swipe intact.
+ */
+internal fun iconOwnsSwipe(travel: Offset, touchSlop: Float, pressedCount: Int, claim: IconSwipeClaim?): Boolean {
+    if (claim == null || pressedCount != 1) return false
+    val direction = swipeDirection(travel, touchSlop) ?: return false
+    return claim.owns(direction)
+}
+
 private fun averageTravel(moves: List<Offset>): Offset =
     if (moves.isEmpty()) Offset.Zero else moves.reduce { a, b -> a + b } / moves.size.toFloat()
 
 // long enough that a sloppy tap never opens the shade, short enough to feel immediate
 private val TRIGGER_DISTANCE = 48.dp
 
-// tan(55 degrees): a swipe counts as vertical up to 55 degrees off straight up or down, leaving page
-// flips the 35 degrees either side of horizontal
-private const val MAX_SIDEWAYS_RATIO = 1.43f

@@ -41,13 +41,14 @@ class AppSearchTest {
     }
 
     @Test
-    fun hiddenAppsOnlyAppearInSearch() {
+    fun hiddenAppsNeverAppear() {
         val entries = listOf(
             DrawerEntry(app("Bank"), hidden = true, renamed = false),
             DrawerEntry(app("Browser"), hidden = false, renamed = false),
         )
         assertEquals(listOf("Browser"), visibleEntries(entries, "").map { it.app.label })
-        assertEquals(listOf("Bank"), visibleEntries(entries, "ban").map { it.app.label })
+        assertEquals(emptyList<String>(), visibleEntries(entries, "ban").map { it.app.label })
+        assertEquals(listOf("Browser"), visibleEntries(entries, "bro").map { it.app.label })
     }
 
     @Test

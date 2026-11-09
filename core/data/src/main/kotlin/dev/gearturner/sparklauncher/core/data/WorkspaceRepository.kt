@@ -65,6 +65,10 @@ class WorkspaceRepository @Inject constructor(
         dao.observe(layout.key).map { rows -> rows.mapNotNull { it.toModelOrNull() } }
     }
 
+    /** shortcuts placed in any mode's layout, which is every one the system must keep pinned for home */
+    val placedShortcutKeys: Flow<Set<ShortcutKey>> = dao.observeShortcutRows()
+        .map { rows -> rows.mapNotNull { it.toModelOrNull()?.shortcutKey }.toSet() }
+
     suspend fun isEmpty(): Boolean = dao.count(active.current().key) == 0
 
     suspend fun addAppToDesktop(app: AppKey, columns: Int, rows: Int): AddResult = placementLock.withLock {
@@ -114,6 +118,17 @@ class WorkspaceRepository @Inject constructor(
                     before.filterNot { item -> item.app.let { it != null && it.packageName == packageName && it.userSerial == userSerial } },
                 )
                 writeDiff(before, after, layout)
+            }
+        }
+    }
+
+    /** removes a shortcut from every mode's layout; a folder left empty collapses like after any removal */
+    suspend fun removeShortcut(key: ShortcutKey): List<WorkspaceItem> = placementLock.withLock {
+        database.withTransaction {
+            LayoutId.entries.flatMap { layout ->
+                val before = loadAll(layout)
+                if (before.none { it.shortcutKey == key }) return@flatMap emptyList()
+                writeDiff(before, normalizeLayout(before.filterNot { it.shortcutKey == key }), layout)
             }
         }
     }

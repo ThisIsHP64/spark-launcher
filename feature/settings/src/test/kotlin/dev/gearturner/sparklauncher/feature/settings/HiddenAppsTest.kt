@@ -34,6 +34,14 @@ class HiddenAppsTest {
     }
 
     @Test
+    fun pickersLeaveHiddenAppsOut() {
+        val bank = app("Bank")
+        val camera = app("Camera")
+        val result = pickableAppsOf(listOf(camera, bank), mapOf(hidden(bank)), collator)
+        assertEquals(listOf("Camera"), result.map { it.label })
+    }
+
+    @Test
     fun overridesThatOnlyRenameDoNotCountAsHidden() {
         val bank = app("Bank")
         val renamedOnly = bank.key to AppOverride(bank.key, hidden = false, customLabel = "Wallet")

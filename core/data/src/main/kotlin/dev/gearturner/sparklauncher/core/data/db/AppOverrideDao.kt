@@ -14,6 +14,9 @@ interface AppOverrideDao {
     @Query("SELECT * FROM app_overrides WHERE package_name = :packageName AND class_name = :className AND user_serial = :userSerial")
     suspend fun get(packageName: String, className: String, userSerial: Long): AppOverrideEntity?
 
+    @Query("SELECT * FROM app_overrides WHERE swipe_up IS NOT NULL OR swipe_down IS NOT NULL")
+    suspend fun withSwipes(): List<AppOverrideEntity>
+
     @Upsert
     suspend fun upsert(entity: AppOverrideEntity)
 

@@ -7,7 +7,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalButton
@@ -33,12 +32,9 @@ import dev.gearturner.sparklauncher.core.model.GestureAction
 import dev.gearturner.sparklauncher.core.model.GestureBinding
 import dev.gearturner.sparklauncher.core.model.HomeMode
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
-import dev.gearturner.sparklauncher.core.model.AppKey
 import dev.gearturner.sparklauncher.core.ui.Choice
 import dev.gearturner.sparklauncher.core.ui.ChoiceDialog
-import dev.gearturner.sparklauncher.core.ui.rememberAppIcon
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Box
+import dev.gearturner.sparklauncher.core.ui.AppChoiceIcon
 
 /** actions in the order the chooser lists them, roughly from most to least common */
 private val ActionOrder = listOf(
@@ -145,15 +141,6 @@ private fun GestureRow(gesture: Gesture, settings: LauncherSettings, viewModel: 
         )
     }
 }
-
-@Composable
-private fun AppChoiceIcon(key: AppKey) {
-    val icon = rememberAppIcon(key, ChoiceIconSize)
-    if (icon != null) Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(ChoiceIconSize))
-    else Box(Modifier.size(ChoiceIconSize))
-}
-
-private val ChoiceIconSize = 36.dp
 
 @Composable
 private fun gestureTitle(gesture: Gesture): String = stringResource(

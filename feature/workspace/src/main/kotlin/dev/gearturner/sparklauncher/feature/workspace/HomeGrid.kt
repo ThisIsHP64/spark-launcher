@@ -22,10 +22,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.SwipeVertical
 import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -52,6 +54,7 @@ import dev.gearturner.sparklauncher.core.ui.AppIcon
 import dev.gearturner.sparklauncher.core.ui.DragController
 import dev.gearturner.sparklauncher.core.ui.DragOrigin
 import dev.gearturner.sparklauncher.core.ui.DragPayload
+import dev.gearturner.sparklauncher.core.ui.DismissOnStop
 import dev.gearturner.sparklauncher.core.ui.DragSession
 import dev.gearturner.sparklauncher.core.ui.IconDragHandler
 import dev.gearturner.sparklauncher.core.ui.IconPickerDialog
@@ -65,6 +68,8 @@ import dev.gearturner.sparklauncher.core.ui.MenuAction
 import dev.gearturner.sparklauncher.core.ui.MenuGroup
 import dev.gearturner.sparklauncher.core.ui.RegisterHomeIcon
 import dev.gearturner.sparklauncher.core.ui.RenameDialog
+import dev.gearturner.sparklauncher.core.ui.SwipeActionsDialog
+import dev.gearturner.sparklauncher.core.ui.SwipeChoice
 import dev.gearturner.sparklauncher.core.ui.rememberLaunchAnchor
 import dev.gearturner.sparklauncher.core.ui.HomeIconRegistry
 
@@ -237,10 +242,32 @@ internal fun HomeItem(
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var changingIcon by remember { mutableStateOf(false) }
+    var editingSwipes by remember { mutableStateOf(false) }
+    DismissOnStop {
+        menuOpen = false
+        renaming = false
+        changingIcon = false
+        editingSwipes = false
+    }
     val anchor = rememberLaunchAnchor()
     // only real app icons are close animation targets; a shortcut is not where its app lives
     if (cell.shortcut == null && registryPage != null) RegisterHomeIcon(cell.itemId, cell.app.key, registryPage, anchor)
-    val actions = homeItemActions(cell, viewModel, anchor, onRename = { renaming = true }, onChangeIcon = { changingIcon = true })
+    val actions = homeItemActions(
+        cell, viewModel, anchor,
+        onRename = { renaming = true },
+        onChangeIcon = { changingIcon = true },
+        onSwipeActions = { editingSwipes = true },
+    )
+    val swipeUp = cell.swipeUp?.let { action -> { viewModel.launchSwipe(action, anchor.request()) } }
+    val swipeDown = cell.swipeDown?.let { action -> { viewModel.launchSwipe(action, anchor.request()) } }
+    // swipes cannot be done with talkback's gestures, so each configured one is offered as an action
+    val swipeLabels = listOf(
+        cell.swipeUp?.let { stringResource(R.string.workspace_a11y_swipe_up, it.label) to swipeUp },
+        cell.swipeDown?.let { stringResource(R.string.workspace_a11y_swipe_down, it.label) to swipeDown },
+    )
+    val allAccessibilityActions = accessibilityActions + swipeLabels.mapNotNull { entry ->
+        entry?.second?.let { run -> CustomAccessibilityAction(entry.first) { run(); true } }
+    }
     val controller = LocalDragController.current
     val payload = DragPayload.Existing(cell.itemId, cell.app.key, viewModel.canUninstall(cell))
     val dragHandler = remember(controller, payload, origin, cell.title) {
@@ -257,7 +284,9 @@ internal fun HomeItem(
             onLongClick = { menuOpen = true },
             dragHandler = dragHandler,
             showDot = cell.hasDot(LocalNotificationDots.current),
-            accessibilityActions = accessibilityActions,
+            accessibilityActions = allAccessibilityActions,
+            swipeUp = swipeUp,
+            swipeDown = swipeDown,
         )
         ItemMenu(
             expanded = menuOpen,
@@ -279,6 +308,18 @@ internal fun HomeItem(
                 viewModel.rename(cell.itemId, title)
             },
             onDismiss = { renaming = false },
+        )
+    }
+    if (editingSwipes && cell.shortcut == null) {
+        SwipeActionsDialog(
+            appLabel = cell.app.label,
+            up = cell.swipeUp,
+            down = cell.swipeDown,
+            apps = remember { viewModel.swipeApps() },
+            hasShortcutAccess = viewModel.hasShortcutAccess,
+            loadShortcuts = viewModel::swipeShortcuts,
+            onSet = { direction, target -> viewModel.setSwipe(cell.app.key, direction, target) },
+            onDismiss = { editingSwipes = false },
         )
     }
     if (changingIcon) {
@@ -430,12 +471,15 @@ private fun homeItemActions(
     anchor: LaunchAnchor,
     onRename: () -> Unit,
     onChangeIcon: () -> Unit,
+    onSwipeActions: () -> Unit,
 ): List<MenuAction> {
     val appInfo = stringResource(R.string.workspace_app_info)
     val changeIcon = stringResource(R.string.workspace_change_icon)
     val rename = stringResource(R.string.workspace_rename)
     val remove = stringResource(R.string.workspace_remove)
+    val hide = stringResource(R.string.workspace_hide)
     val uninstall = stringResource(R.string.workspace_uninstall)
+    val swipeActions = stringResource(R.string.workspace_swipe_actions)
     val widgets = stringResource(R.string.workspace_widgets)
     val picker = LocalWidgetPicker.current
     return buildList {
@@ -445,6 +489,8 @@ private fun homeItemActions(
         }
         add(MenuAction(rename, Icons.Outlined.Edit, onClick = onRename))
         if (cell.shortcut == null && viewModel.canChangeIcon(cell.app.key)) add(MenuAction(changeIcon, Icons.Outlined.Image, onClick = onChangeIcon))
+        if (cell.shortcut == null) add(MenuAction(swipeActions, Icons.Outlined.SwipeVertical, onClick = onSwipeActions))
+        if (viewModel.canHide(cell)) add(MenuAction(hide, Icons.Outlined.VisibilityOff) { viewModel.hide(cell) })
         add(MenuAction(remove, Icons.Outlined.Close, MenuGroup.Destructive) { viewModel.remove(cell.itemId) })
         if (viewModel.canUninstall(cell)) {
             add(MenuAction(uninstall, Icons.Outlined.Delete, MenuGroup.Destructive) { viewModel.uninstall(cell.app.key) })

@@ -19,6 +19,10 @@ interface WorkspaceDao {
     @Query("SELECT * FROM workspace_items")
     suspend fun getEverywhere(): List<WorkspaceItemEntity>
 
+    /** every placed shortcut in every layout, for knowing which pinned shortcuts are in use */
+    @Query("SELECT * FROM workspace_items WHERE shortcut_id IS NOT NULL")
+    fun observeShortcutRows(): Flow<List<WorkspaceItemEntity>>
+
     @Query("SELECT * FROM workspace_items WHERE id = :id")
     suspend fun getById(id: Long): WorkspaceItemEntity?
 

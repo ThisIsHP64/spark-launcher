@@ -45,8 +45,8 @@ class WorkspaceJanitor @Inject constructor(
             combine(settings.settings, apps.apps.filterNotNull(), overrides.overrides) { current, installed, appOverrides ->
                 if (current.homeMode != HomeMode.HOME_ONLY) return@combine null
                 val collator = Collator.getInstance()
-                // hidden apps stay off home, which is also what removing an app does in this mode
-                val visible = installed.filterNot { appOverrides[it.key]?.hidden == true }
+                // hidden apps and apps the user removed stay off home in this mode
+                val visible = installed.filterNot { appOverrides[it.key]?.let { o -> o.hidden || o.homeRemoved } == true }
                     .sortedWith { a, b -> collator.compare(appOverrides[a.key]?.customLabel ?: a.label, appOverrides[b.key]?.customLabel ?: b.label) }
                     .map { it.key }
                 Triple(visible, current.homeColumns, current.homeRows)

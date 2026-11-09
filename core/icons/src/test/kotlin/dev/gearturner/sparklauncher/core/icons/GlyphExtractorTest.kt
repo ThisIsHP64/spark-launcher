@@ -74,4 +74,57 @@ class GlyphExtractorTest {
     fun flatIconsAreNotDuotoned() {
         assertNull(GlyphExtractor.duotone(icon(Color.rgb(90, 90, 200)), Color.BLACK, Color.WHITE))
     }
+
+    private fun Canvas.stroke(color: Int, width: Float, x1: Float, y1: Float, x2: Float, y2: Float) =
+        drawLine(
+            x1, y1, x2, y2,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = color
+                strokeWidth = width
+                strokeCap = Paint.Cap.ROUND
+            },
+        )
+
+    @Test
+    fun aLoneShapeOnATransparentCanvasIsItsOwnGlyph() {
+        // like a legacy phone icon: a shaded blue handset with no tile, whose bands sit close to its own fill
+        val handset = icon(Color.TRANSPARENT) {
+            stroke(Color.rgb(14, 171, 244), 24f, 15f, 85f, 85f, 15f)
+            stroke(Color.rgb(10, 120, 200), 8f, 30f, 70f, 70f, 30f)
+        }
+        val glyph = GlyphExtractor.extract(handset)
+        assertNotNull(glyph)
+        assertTrue(Color.alpha(glyph!!.getPixel(50, 50)) > 200)
+        // the lighter and darker bands stay solid instead of leaving only an outline
+        assertTrue(Color.alpha(glyph.getPixel(40, 60)) > 200)
+        assertTrue(Color.alpha(glyph.getPixel(10, 10)) < 10)
+    }
+
+    @Test
+    fun aMarkInsideATransparentCutoutStillWinsOverItsShape() {
+        // a round logo with a white mark on a transparent canvas: only the mark is lifted out
+        val logo = icon(Color.TRANSPARENT) {
+            drawCircle(50f, 50f, 40f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(30, 100, 220) })
+            block(Color.WHITE, 44f, 25f, 56f, 75f)
+        }
+        val glyph = GlyphExtractor.extract(logo)
+        assertNotNull(glyph)
+        assertTrue(Color.alpha(glyph!!.getPixel(50, 50)) > 200)
+        assertTrue(Color.alpha(glyph.getPixel(25, 50)) < 10)
+    }
+
+    @Test
+    fun anEmptyCanvasHasNoGlyph() {
+        assertNull(GlyphExtractor.extract(icon(Color.TRANSPARENT)))
+    }
+
+    @Test
+    fun anOpaqueTileKeepsUsingItsEdgeColor() {
+        // a dark mark on an opaque tile is judged against the tile, not treated as a cutout shape
+        val tile = icon(Color.rgb(240, 240, 240)) { block(Color.rgb(20, 20, 20), 35f, 35f, 65f, 65f) }
+        val glyph = GlyphExtractor.extract(tile)
+        assertNotNull(glyph)
+        assertTrue(Color.alpha(glyph!!.getPixel(50, 50)) > 200)
+        assertTrue(Color.alpha(glyph.getPixel(10, 10)) < 10)
+    }
 }

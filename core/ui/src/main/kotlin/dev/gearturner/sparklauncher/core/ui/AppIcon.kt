@@ -116,6 +116,8 @@ fun AppIcon(
     dragHandler: IconDragHandler? = null,
     showDot: Boolean = false,
     accessibilityActions: List<CustomAccessibilityAction> = emptyList(),
+    swipeUp: (() -> Unit)? = null,
+    swipeDown: (() -> Unit)? = null,
 ) {
     val bitmap = rememberIcon(source, iconSize)
     SideEffect { anchor.icon = bitmap }
@@ -135,6 +137,8 @@ fun AppIcon(
         dragHandler = dragHandler,
         dotColor = if (showDot) accent ?: fallbackDotColor() else null,
         accessibilityActions = accessibilityActions,
+        swipeUp = swipeUp,
+        swipeDown = swipeDown,
     ) {
         if (bitmap != null) {
             Image(bitmap = bitmap, contentDescription = null, modifier = Modifier.size(iconSize))
@@ -168,6 +172,8 @@ fun LauncherTile(
     dragHandler: IconDragHandler? = null,
     dotColor: Color? = null,
     accessibilityActions: List<CustomAccessibilityAction> = emptyList(),
+    swipeUp: (() -> Unit)? = null,
+    swipeDown: (() -> Unit)? = null,
     icon: @Composable () -> Unit,
 ) {
     val hasNotifications = stringResource(R.string.ui_has_notifications)
@@ -183,6 +189,8 @@ fun LauncherTile(
                 onClick = onClick,
                 onLongClick = onLongClick,
                 dragHandler = dragHandler,
+                swipeUp = swipeUp,
+                swipeDown = swipeDown,
             )
             // the custom detector replaces clickable, so tap and long press are restated for talkback
             // one talkback stop per tile: the icon and its label are read together, and a tile whose

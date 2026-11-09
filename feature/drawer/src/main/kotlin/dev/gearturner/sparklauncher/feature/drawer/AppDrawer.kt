@@ -73,7 +73,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.SwipeVertical
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.Widgets
 import dev.gearturner.sparklauncher.core.ui.LocalDrawer
@@ -95,7 +95,9 @@ import dev.gearturner.sparklauncher.core.ui.ItemMenu
 import dev.gearturner.sparklauncher.core.ui.LaunchAnchor
 import dev.gearturner.sparklauncher.core.ui.MenuAction
 import dev.gearturner.sparklauncher.core.ui.MenuGroup
+import dev.gearturner.sparklauncher.core.ui.DismissOnStop
 import dev.gearturner.sparklauncher.core.ui.RenameDialog
+import dev.gearturner.sparklauncher.core.ui.SwipeActionsDialog
 import dev.gearturner.sparklauncher.core.ui.BaseIconSize
 import dev.gearturner.sparklauncher.core.ui.DrawerController
 import dev.gearturner.sparklauncher.core.ui.LabelStyle
@@ -156,6 +158,7 @@ fun AppDrawer(
         viewModel.oneShotEvents.collect { event ->
             val message = when (event) {
                 is DrawerEvent.LaunchFailed -> resources.getString(R.string.drawer_launch_failed, event.label)
+                DrawerEvent.SwipeNotSaved -> resources.getString(R.string.drawer_swipe_not_saved)
                 is DrawerEvent.AddedToHome -> resources.getString(
                     when (event.result) {
                         is AddResult.Added -> R.string.drawer_added
@@ -333,8 +336,20 @@ private fun DrawerItem(
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var changingIcon by remember { mutableStateOf(false) }
+    var editingSwipes by remember { mutableStateOf(false) }
+    DismissOnStop {
+        menuOpen = false
+        renaming = false
+        changingIcon = false
+        editingSwipes = false
+    }
     val anchor = rememberLaunchAnchor()
-    val actions = drawerItemActions(entry, viewModel, anchor, onRename = { renaming = true }, onChangeIcon = { changingIcon = true })
+    val actions = drawerItemActions(
+        entry, viewModel, anchor,
+        onRename = { renaming = true },
+        onChangeIcon = { changingIcon = true },
+        onSwipeActions = { editingSwipes = true },
+    )
     val dragController = LocalDragController.current
     val canUninstall = viewModel.canUninstall(app)
     val dragHandler = remember(dragController, app.key, canUninstall, drawer, app.label) {
@@ -354,9 +369,7 @@ private fun DrawerItem(
     }
     Box(
         modifier = Modifier
-            .then(plate)
-            // hidden apps only show up in search; dimming them makes it clear why they are there
-            .graphicsLayer { alpha = if (entry.hidden) HIDDEN_ALPHA else 1f },
+            .then(plate),
         contentAlignment = Alignment.Center,
     ) {
         AppIcon(
@@ -392,6 +405,18 @@ private fun DrawerItem(
             onDismiss = { renaming = false },
         )
     }
+    if (editingSwipes) {
+        SwipeActionsDialog(
+            appLabel = app.label,
+            up = entry.swipeUp,
+            down = entry.swipeDown,
+            apps = remember { viewModel.swipeApps() },
+            hasShortcutAccess = viewModel.hasShortcutAccess,
+            loadShortcuts = viewModel::swipeShortcuts,
+            onSet = { direction, target -> viewModel.setSwipe(app.key, direction, target) },
+            onDismiss = { editingSwipes = false },
+        )
+    }
     if (changingIcon) {
         IconPickerDialog(
             appLabel = app.label,
@@ -418,13 +443,15 @@ private fun drawerItemActions(
     anchor: LaunchAnchor,
     onRename: () -> Unit,
     onChangeIcon: () -> Unit,
+    onSwipeActions: () -> Unit,
 ): List<MenuAction> {
     val app = entry.app
+    val swipeActions = stringResource(R.string.drawer_swipe_actions)
     val changeIcon = stringResource(R.string.drawer_change_icon)
     val addToHome = stringResource(R.string.drawer_add_to_home)
     val appInfo = stringResource(R.string.drawer_app_info)
     val rename = stringResource(R.string.drawer_rename)
-    val hide = stringResource(if (entry.hidden) R.string.drawer_unhide else R.string.drawer_hide)
+    val hide = stringResource(R.string.drawer_hide)
     val uninstall = stringResource(R.string.drawer_uninstall)
     val widgets = stringResource(R.string.drawer_widgets)
     val picker = LocalWidgetPicker.current
@@ -442,18 +469,14 @@ private fun drawerItemActions(
         add(MenuAction(appInfo, Icons.Outlined.Info) { viewModel.openAppInfo(app, anchor.request()) })
         add(MenuAction(rename, Icons.Outlined.Edit, onClick = onRename))
         if (viewModel.canChangeIcon(entry)) add(MenuAction(changeIcon, Icons.Outlined.Image, onClick = onChangeIcon))
-        add(
-            MenuAction(hide, if (entry.hidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff) {
-                viewModel.setHidden(app, !entry.hidden)
-            },
-        )
+        add(MenuAction(swipeActions, Icons.Outlined.SwipeVertical, onClick = onSwipeActions))
+        add(MenuAction(hide, Icons.Outlined.VisibilityOff) { viewModel.setHidden(app, true) })
         if (viewModel.canUninstall(app)) {
             add(MenuAction(uninstall, Icons.Outlined.Delete, MenuGroup.Destructive) { viewModel.uninstall(app) })
         }
     }
 }
 
-private const val HIDDEN_ALPHA = 0.5f
 
 /** dragging an app out closes the drawer so the home screen is there to drop it on, as on pixel */
 private fun drawerDragHandler(

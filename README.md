@@ -40,7 +40,7 @@ Spark Launcher is my take on the perfect Android launcher: fast and clean in the
 ### App drawer and search
 
 - A drawer that blurs the home screen and wallpaper behind it, when the system allows blur
-- Hide apps from the drawer and show them again at any time
+- Hide apps from the drawer and from search; the hidden apps page in settings is the only way to see or restore them, and it opens with your fingerprint, face, or screen lock
 - Search across apps, app shortcuts such as "New message", system settings screens such as Wi-Fi or Battery, and contacts
 - A built-in calculator in search, with tap to copy
 - Every search source runs on your phone. App shortcuts, system settings, and contacts can each be switched off, and contacts are off until you turn them on
@@ -73,6 +73,8 @@ Spark Launcher is my take on the perfect Android launcher: fast and clean in the
 ## Building
 
 Requirements: JDK 21 and the Android SDK (platform 37). Spark runs on Android 12 (API 31) and newer.
+
+Spark is tested on a Pixel 10 running Android 17 and in Android 12 and 12L emulators. I do not have a physical Android 12 device, so please report any problems you find there.
 
 ```
 ./gradlew assembleDebug

@@ -3,10 +3,12 @@
    <configuration>
       <verify-metadata>true</verify-metadata>
       <verify-signatures>false</verify-signatures>
-      <!-- the ide fetches these for code navigation only; they never reach the build or the apk -->
+      <!-- the ide fetches these through gradle for code navigation only; they never reach the build or the apk -->
       <trusted-artifacts>
          <trust file=".*-javadoc[.]jar" regex="true"/>
          <trust file=".*-sources[.]jar" regex="true"/>
+         <trust group="gradle" name="gradle" file="gradle-.*-src[.]zip" regex="true"/>
+         <trust group="org[.]apache[.]groovy" name="groovy(-.+)?" file=".*[.](module|pom)" regex="true"/>
       </trusted-artifacts>
    </configuration>
    <components>

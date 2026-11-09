@@ -2,12 +2,17 @@ package dev.gearturner.sparklauncher.feature.workspace
 
 import dev.gearturner.sparklauncher.core.model.AppInfo
 import dev.gearturner.sparklauncher.core.model.AppKey
+import dev.gearturner.sparklauncher.core.model.AppOverride
+import dev.gearturner.sparklauncher.core.model.AppShortcut
+import dev.gearturner.sparklauncher.core.model.ShortcutKey
+import dev.gearturner.sparklauncher.core.model.SwipeTarget
 import dev.gearturner.sparklauncher.core.model.CellPlacement
 import dev.gearturner.sparklauncher.core.model.Container
 import dev.gearturner.sparklauncher.core.model.ItemType
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
 import dev.gearturner.sparklauncher.core.model.WorkspaceItem
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class BuildStateTest {
@@ -78,5 +83,57 @@ class BuildStateTest {
         val folder = state.pages.single().single() as FolderTile
         assertEquals("Games", folder.name)
         assertEquals(listOf(2L, 1L), folder.children.map { it.itemId })
+    }
+
+    private fun cellOf(state: HomeUiState) = state.pages.single().single() as HomeCell
+
+    @Test
+    fun swipeTargetsReachTheCellWithTheirLabels() {
+        val items = listOf(item(1, "a", Container.Desktop, CellPlacement(0, 0, 0)))
+        val shortcutKey = ShortcutKey("com.example.maps", "home", 0)
+        val overrides = mapOf(
+            key("a") to AppOverride(
+                key("a"),
+                swipeUp = SwipeTarget.App(key("b")),
+                swipeDown = SwipeTarget.Shortcut(shortcutKey),
+            ),
+        )
+        val pinned = mapOf(shortcutKey to AppShortcut(shortcutKey, "Go home", null, 0, true))
+        val state = buildState(items, listOf(info("a"), info("b")), LauncherSettings(), pinned, overrides)
+        val cell = cellOf(state)
+        assertEquals("b", cell.swipeUp?.label)
+        assertEquals("Go home", cell.swipeDown?.label)
+    }
+
+    @Test
+    fun swipeTargetsWhoseAppOrShortcutIsGoneAreDropped() {
+        val items = listOf(item(1, "a", Container.Desktop, CellPlacement(0, 0, 0)))
+        val overrides = mapOf(
+            key("a") to AppOverride(
+                key("a"),
+                swipeUp = SwipeTarget.App(key("uninstalled")),
+                swipeDown = SwipeTarget.Shortcut(ShortcutKey("com.example.maps", "deleted", 0)),
+            ),
+        )
+        val state = buildState(items, listOf(info("a")), LauncherSettings(), emptyMap(), overrides)
+        assertNull(cellOf(state).swipeUp)
+        assertNull(cellOf(state).swipeDown)
+    }
+
+    @Test
+    fun shortcutSwipeIsTrustedWhileShortcutAccessIsUnknown() {
+        val items = listOf(item(1, "a", Container.Desktop, CellPlacement(0, 0, 0)))
+        val target = SwipeTarget.Shortcut(ShortcutKey("com.example.maps", "home", 0))
+        val overrides = mapOf(key("a") to AppOverride(key("a"), swipeUp = target))
+        val state = buildState(items, listOf(info("a")), LauncherSettings(), pinned = null, appOverrides = overrides)
+        assertEquals(target, cellOf(state).swipeUp?.target)
+    }
+
+    @Test
+    fun appsWithoutOverridesHaveNoSwipes() {
+        val items = listOf(item(1, "a", Container.Desktop, CellPlacement(0, 0, 0)))
+        val cell = cellOf(buildState(items, listOf(info("a")), LauncherSettings()))
+        assertNull(cell.swipeUp)
+        assertNull(cell.swipeDown)
     }
 }

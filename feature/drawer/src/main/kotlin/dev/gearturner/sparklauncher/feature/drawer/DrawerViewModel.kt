@@ -20,6 +20,13 @@ import dev.gearturner.sparklauncher.core.icons.IconPackInfo
 import dev.gearturner.sparklauncher.core.icons.IconPackRepository
 import dev.gearturner.sparklauncher.core.model.CustomIcon
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
+import dev.gearturner.sparklauncher.core.model.ShortcutKey
+import dev.gearturner.sparklauncher.core.model.SwipeDirection
+import dev.gearturner.sparklauncher.core.model.SwipeTarget
+import dev.gearturner.sparklauncher.core.ui.ShortcutChoices
+import dev.gearturner.sparklauncher.core.ui.SwipeChoice
+import dev.gearturner.sparklauncher.core.ui.resolveSwipe
+import dev.gearturner.sparklauncher.core.ui.splitShortcuts
 import dev.gearturner.sparklauncher.feature.search.ContactHit
 import dev.gearturner.sparklauncher.feature.search.SearchRepository
 import dev.gearturner.sparklauncher.feature.search.SearchResults
@@ -35,8 +42,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -47,6 +56,8 @@ data class DrawerEntry(
     val hidden: Boolean,
     val renamed: Boolean,
     val customIcon: Boolean = false,
+    val swipeUp: SwipeChoice? = null,
+    val swipeDown: SwipeChoice? = null,
 )
 
 data class DrawerUiState(
@@ -76,6 +87,7 @@ internal fun topHitOf(entries: List<DrawerEntry>, results: SearchResults): TopHi
 
 sealed interface DrawerEvent {
     data class LaunchFailed(val label: String) : DrawerEvent
+    data object SwipeNotSaved : DrawerEvent
     data class AddedToHome(val result: AddResult) : DrawerEvent
 }
 
@@ -94,6 +106,9 @@ class DrawerViewModel @Inject constructor(
 
     private val query = MutableStateFlow("")
 
+    @Volatile
+    private var latestOverrides: Map<AppKey, AppOverride> = emptyMap()
+
     // which apps offer widgets, so the menu only shows a widgets entry where it leads somewhere
     private val widgetPackages: StateFlow<Set<Pair<String, Long>>> = widgets.providers
         .map { list -> list.map { it.key.packageName to it.key.userSerial }.toSet() }
@@ -102,9 +117,12 @@ class DrawerViewModel @Inject constructor(
     val oneShotEvents: Flow<DrawerEvent> = events.receiveAsFlow()
 
     // renames change sort order, so sorting happens after overrides apply but not on every keystroke
-    private val sortedEntries = combine(apps.apps.filterNotNull(), overrides.overrides) { installed, appOverrides ->
+    private val sortedEntries = combine(apps.apps.filterNotNull(), overrides.overrides.onEach { latestOverrides = it }, shortcuts.pinned) { installed, appOverrides, pinned ->
         val labeled = installed.map { app -> app.copy(label = appOverrides[app.key]?.customLabel ?: app.label) }
-        sortApps(labeled).map { app -> app.toEntry(appOverrides[app.key]) }
+        // without host access the pinned list reads empty, so stored shortcut targets are trusted as is
+        val knownPins = pinned.takeIf { shortcuts.hasHostPermission }
+        val byKey = installed.associateBy { it.key }
+        sortApps(labeled).map { app -> app.toEntry(appOverrides[app.key], byKey, appOverrides, knownPins) }
     }.flowOn(Dispatchers.Default)
 
     private val results = search.results(query)
@@ -155,6 +173,25 @@ class DrawerViewModel @Inject constructor(
 
     suspend fun menuShortcuts(app: AppInfo): List<AppShortcut> = shortcuts.menuShortcuts(app.key)
 
+    /** every app a swipe can open except hidden ones, named the way the drawer shows them */
+    fun swipeApps(): List<AppInfo> = apps.apps.value.orEmpty()
+        .filterNot { latestOverrides[it.key]?.hidden == true }
+        .map { it.copy(label = latestOverrides[it.key]?.customLabel ?: it.label) }
+        .sortedBy { it.label.lowercase() }
+
+    val hasShortcutAccess: Boolean get() = shortcuts.hasHostPermission
+
+    /** app shortcuts and pinned shortcuts in separate groups, with the ones already on home marked */
+    suspend fun swipeShortcuts(): ShortcutChoices =
+        splitShortcuts(shortcuts.allLaunchable(), shortcuts.pinned.value.values, workspace.placedShortcutKeys.first())
+
+    /** a null target clears the swipe; a refused change tells the user instead of looking saved */
+    fun setSwipe(owner: AppKey, direction: SwipeDirection, target: SwipeTarget?) {
+        viewModelScope.launch {
+            if (!shortcutPlacement.bindSwipe(owner, direction, target)) events.trySend(DrawerEvent.SwipeNotSaved)
+        }
+    }
+
     fun openAppInfo(app: AppInfo, request: LaunchRequest) {
         apps.openAppDetails(app.key, request)
     }
@@ -163,6 +200,8 @@ class DrawerViewModel @Inject constructor(
         viewModelScope.launch {
             val settings = settingsRepository.current()
             val result = workspace.addAppToDesktop(app.key, settings.homeColumns, settings.homeRows)
+            // an app added back to home is no longer one the user removed
+            if (result is AddResult.Added && latestOverrides[app.key]?.homeRemoved == true) overrides.setHomeRemoved(app.key, false)
             events.send(DrawerEvent.AddedToHome(result))
         }
     }
@@ -208,19 +247,27 @@ class DrawerViewModel @Inject constructor(
     }
 }
 
-private fun AppInfo.toEntry(override: AppOverride?) = DrawerEntry(
+private fun AppInfo.toEntry(
+    override: AppOverride?,
+    installed: Map<AppKey, AppInfo>,
+    overrides: Map<AppKey, AppOverride>,
+    pinned: Map<ShortcutKey, AppShortcut>?,
+) = DrawerEntry(
     app = this,
     hidden = override?.hidden == true,
     renamed = override?.customLabel != null,
     customIcon = override?.customIcon != null,
+    swipeUp = resolveSwipe(override?.swipeUp, installed, overrides, pinned),
+    swipeDown = resolveSwipe(override?.swipeDown, installed, overrides, pinned),
 )
 
 /**
- * hidden apps leave the list but still answer a search, which is how they are found and unhidden
- * without a separate settings screen.
+ * hidden apps never show here, search included, so they cannot be found from the drawer. they come
+ * back only through the hidden apps page in settings, which is behind authentication.
  */
 internal fun visibleEntries(sorted: List<DrawerEntry>, query: String): List<DrawerEntry> {
-    if (query.isBlank()) return sorted.filterNot { it.hidden }
-    val byKey = sorted.associateBy { it.app.key }
-    return filterApps(sorted.map { it.app }, query).mapNotNull { byKey[it.key] }
+    val shown = sorted.filterNot { it.hidden }
+    if (query.isBlank()) return shown
+    val byKey = shown.associateBy { it.app.key }
+    return filterApps(shown.map { it.app }, query).mapNotNull { byKey[it.key] }
 }

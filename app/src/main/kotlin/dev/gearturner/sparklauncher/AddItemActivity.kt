@@ -4,7 +4,9 @@ import androidx.compose.material3.FilledTonalButton
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.content.pm.LauncherApps
+import android.content.pm.PackageManager
 import android.content.pm.ShortcutInfo
+import android.os.UserHandle
 import android.os.Bundle
 import android.os.UserManager
 import android.util.Log
@@ -12,11 +14,26 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,26 +43,35 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import dev.gearturner.sparklauncher.core.apps.AppsRepository
 import dev.gearturner.sparklauncher.core.apps.ShortcutsRepository
+import dev.gearturner.sparklauncher.core.icons.IconRepository
 import dev.gearturner.sparklauncher.core.data.AddResult
 import dev.gearturner.sparklauncher.core.data.SettingsRepository
 import dev.gearturner.sparklauncher.core.data.ShortcutPlacement
 import dev.gearturner.sparklauncher.core.data.WorkspaceRepository
 import dev.gearturner.sparklauncher.core.model.AppKey
+import dev.gearturner.sparklauncher.core.model.AppInfo
 import dev.gearturner.sparklauncher.core.model.AppShortcut
 import dev.gearturner.sparklauncher.core.model.DropPlan
 import dev.gearturner.sparklauncher.core.model.DropTarget
 import dev.gearturner.sparklauncher.core.model.Dragged
 import dev.gearturner.sparklauncher.core.model.ShortcutKey
+import dev.gearturner.sparklauncher.core.model.SwipeDirection
+import dev.gearturner.sparklauncher.core.model.SwipeTarget
 import dev.gearturner.sparklauncher.core.model.defaultSpan
 import dev.gearturner.sparklauncher.core.model.SUBGRID
 import dev.gearturner.sparklauncher.core.model.Span
 import dev.gearturner.sparklauncher.core.theme.SparkTheme
+import dev.gearturner.sparklauncher.core.ui.AppChoiceIcon
+import dev.gearturner.sparklauncher.core.ui.Choice
+import dev.gearturner.sparklauncher.core.ui.ChoiceDialog
+import dev.gearturner.sparklauncher.core.ui.LocalIconRepository
 import dev.gearturner.sparklauncher.feature.widgets.WidgetHostManager
 import dev.gearturner.sparklauncher.feature.widgets.WidgetPreview
 import dev.gearturner.sparklauncher.feature.widgets.WidgetProvider
@@ -77,6 +103,8 @@ class AddItemActivity : ComponentActivity() {
     @Inject lateinit var widgetHost: WidgetHostManager
 
     @Inject lateinit var widgets: WidgetRepository
+
+    @Inject lateinit var iconRepository: IconRepository
 
     private lateinit var widgetBinder: WidgetBindFlow
 
@@ -110,40 +138,127 @@ class AddItemActivity : ComponentActivity() {
     private fun showShortcut(request: LauncherApps.PinItemRequest, info: ShortcutInfo) {
         val label = info.shortLabel?.toString().orEmpty().ifEmpty { info.id }
         val icon = loadIcon(info)
-        showDialog(label, onAdd = { acceptShortcut(request, info) }) {
-            if (icon != null) Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(56.dp))
+        showSheet(
+            label = label,
+            sourceLabel = sourceLabel(info.`package`, info.userHandle),
+            onAdd = { acceptShortcut(request, info) },
+            onUseForSwipe = { acceptForSwipe(request, info) },
+        ) {
+            // the system already masks shortcut icons, so the plate only frames them
+            Box(
+                modifier = Modifier
+                    .size(ICON_PLATE)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(28.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (icon != null) Image(bitmap = icon, contentDescription = null, modifier = Modifier.size(56.dp))
+            }
         }
     }
 
     private fun showWidget(request: LauncherApps.PinItemRequest, provider: WidgetProvider) {
-        showDialog(provider.label, onAdd = { acceptWidget(request, provider) }) {
-            Column(modifier = Modifier.heightIn(max = 200.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        showSheet(
+            label = provider.label,
+            sourceLabel = sourceLabel(provider.info.provider.packageName, provider.info.profile),
+            onAdd = { acceptWidget(request, provider) },
+        ) {
+            Box(
+                modifier = Modifier
+                    .heightIn(max = 200.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(28.dp))
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 val (cellWidth, cellHeight) = approximateCellDp()
                 WidgetPreview(provider, (cellWidth * 2).dp, (cellHeight * 2).dp, 160.dp)
             }
         }
     }
 
-    private fun showDialog(label: String, onAdd: () -> Unit, preview: @Composable () -> Unit) {
+    /**
+     * the confirmation as a bottom sheet over whatever app made the request. the sheet never finishes
+     * on stop, because binding a widget can open a system permission screen on top of it.
+     */
+    @OptIn(ExperimentalMaterial3Api::class)
+    private fun showSheet(
+        label: String,
+        sourceLabel: String?,
+        onAdd: () -> Unit,
+        onUseForSwipe: (() -> Unit)? = null,
+        preview: @Composable () -> Unit,
+    ) {
         setContent {
             SparkTheme {
-                AlertDialog(
+                ModalBottomSheet(
                     onDismissRequest = ::finish,
-                    title = { Text(stringResource(R.string.add_shortcut_title)) },
-                    text = {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            preview()
-                            Text(label, textAlign = TextAlign.Center)
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 24.dp, end = 24.dp, bottom = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        preview()
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.titleLarge,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (sourceLabel != null) {
+                            Text(
+                                text = stringResource(R.string.add_shortcut_from, sourceLabel),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
                         }
-                    },
-                    confirmButton = { FilledTonalButton(onClick = onAdd) { Text(stringResource(R.string.add_shortcut_confirm)) } },
-                    dismissButton = { TextButton(onClick = ::finish) { Text(stringResource(R.string.add_shortcut_cancel)) } },
-                )
+                        Spacer(Modifier.height(24.dp))
+                        Button(
+                            onClick = onAdd,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 56.dp),
+                        ) { Text(stringResource(R.string.add_shortcut_confirm)) }
+                        if (onUseForSwipe != null) {
+                            FilledTonalButton(
+                                onClick = onUseForSwipe,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp)
+                                    .heightIn(min = 56.dp),
+                            ) { Text(stringResource(R.string.add_shortcut_use_for_swipe)) }
+                        }
+                        TextButton(
+                            onClick = ::finish,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
+                        ) { Text(stringResource(R.string.add_shortcut_cancel)) }
+                    }
+                }
             }
         }
+    }
+
+    /**
+     * the name of the app that made the request, read from the system's own record of its package.
+     * null when it cannot be read, so the sheet shows nothing rather than a guess.
+     */
+    private fun sourceLabel(packageName: String, user: UserHandle): String? = try {
+        val info = launcherApps.getApplicationInfo(packageName, 0, user)
+        packageManager.getApplicationLabel(info).toString().takeIf { it.isNotBlank() }
+    } catch (e: PackageManager.NameNotFoundException) {
+        null
+    } catch (e: RuntimeException) {
+        Log.w(TAG, "could not read the requesting app", e)
+        null
     }
 
     /**
@@ -167,6 +282,61 @@ class AddItemActivity : ComponentActivity() {
                 messageFor(placement.addAccepted(shortcut, owner, current.homeColumns, current.homeRows))
             }
             finishWith(message)
+        }
+    }
+
+    /**
+     * keeps the shortcut for a swipe instead of placing it, the way a shortcut from a widget app is
+     * usually wanted. the same proof as [acceptShortcut] applies: only the system's pinned copy is
+     * trusted, so a request an app made up cannot bind anything it did not really pin.
+     */
+    private fun acceptForSwipe(request: LauncherApps.PinItemRequest, requested: ShortcutInfo) {
+        lifecycleScope.launch {
+            val accepted = acceptSafely { request.accept() }
+            val pinned = if (accepted) shortcuts.pinnedShortcut(requested.`package`, requested.id, requested.userHandle) else null
+            val serial = pinned?.let { userManager.getSerialNumberForUser(it.userHandle) }
+            if (pinned == null || serial == null) return@launch finishWith(R.string.add_shortcut_failed)
+            val key = ShortcutKey(pinned.`package`, pinned.id, serial)
+            showSwipePicker(key, apps.awaitApps().sortedBy { it.label.lowercase() })
+        }
+    }
+
+    /** asks which app's icon gets the shortcut and in which direction, then binds it */
+    private fun showSwipePicker(shortcut: ShortcutKey, installed: List<AppInfo>) {
+        setContent {
+            SparkTheme {
+                CompositionLocalProvider(LocalIconRepository provides iconRepository) {
+                    var owner by remember { mutableStateOf<AppInfo?>(null) }
+                    val chosen = owner
+                    if (chosen == null) {
+                        ChoiceDialog(
+                            title = stringResource(R.string.add_shortcut_swipe_pick_app),
+                            choices = installed.map { app -> Choice(app, app.label, leading = { AppChoiceIcon(app.key) }) },
+                            selected = null,
+                            onSelect = { owner = it },
+                            onDismiss = ::finish,
+                        )
+                    } else {
+                        ChoiceDialog(
+                            title = stringResource(R.string.add_shortcut_swipe_pick_direction, chosen.label),
+                            choices = listOf(
+                                Choice(SwipeDirection.UP, stringResource(R.string.add_shortcut_swipe_up)),
+                                Choice(SwipeDirection.DOWN, stringResource(R.string.add_shortcut_swipe_down)),
+                            ),
+                            selected = null,
+                            onSelect = { direction -> bindSwipe(chosen.key, direction, shortcut) },
+                            onDismiss = ::finish,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun bindSwipe(owner: AppKey, direction: SwipeDirection, shortcut: ShortcutKey) {
+        lifecycleScope.launch {
+            val saved = placement.bindSwipe(owner, direction, SwipeTarget.Shortcut(shortcut))
+            finishWith(if (saved) R.string.add_shortcut_swipe_saved else R.string.add_shortcut_failed)
         }
     }
 
@@ -241,6 +411,7 @@ class AddItemActivity : ComponentActivity() {
 
     private companion object {
         const val TAG = "AddItemActivity"
+        val ICON_PLATE = 88.dp
         const val DEFAULT_COLUMNS = 4
         const val DEFAULT_ROWS = 5
         // status bar, page dots, dock, and nav bar together take roughly this much height

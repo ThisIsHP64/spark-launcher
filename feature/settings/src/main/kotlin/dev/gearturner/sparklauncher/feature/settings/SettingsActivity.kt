@@ -22,6 +22,12 @@ class SettingsActivity : ComponentActivity() {
 
     private val viewModel: SettingsViewModel by viewModels()
 
+    override fun onStop() {
+        // leaving for anything but a rotation relocks, so coming back to the hidden apps page asks again
+        if (!isChangingConfigurations) viewModel.lockHidden()
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)

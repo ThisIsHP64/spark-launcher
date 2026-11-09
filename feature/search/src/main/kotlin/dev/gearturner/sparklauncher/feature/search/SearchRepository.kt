@@ -9,8 +9,10 @@ import dev.gearturner.sparklauncher.core.apps.AppsRepository
 import dev.gearturner.sparklauncher.core.apps.LaunchRequest
 import dev.gearturner.sparklauncher.core.apps.LaunchResult
 import dev.gearturner.sparklauncher.core.apps.ShortcutsRepository
+import dev.gearturner.sparklauncher.core.data.AppOverridesRepository
 import dev.gearturner.sparklauncher.core.data.SettingsRepository
 import dev.gearturner.sparklauncher.core.model.AppKey
+import dev.gearturner.sparklauncher.core.model.AppOverride
 import dev.gearturner.sparklauncher.core.model.AppShortcut
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
 import javax.inject.Inject
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 
 /** a shortcut result with the app it belongs to, so the row can name and badge its owner */
@@ -40,6 +43,19 @@ data class SearchResults(
     val isEmpty: Boolean get() = calculation == null && shortcuts.isEmpty() && contacts.isEmpty() && settings.isEmpty()
 }
 
+/** the package and profile a shortcut belongs to, which is what hiding an app keys on for shortcuts */
+internal typealias OwnerKey = Pair<String, Long>
+
+/**
+ * a package can have several launcher activities, and shortcuts belong to the package, so hiding any
+ * one of them hides the package's shortcuts from search rather than leaking the app through them.
+ */
+internal fun hiddenOwners(overrides: Map<AppKey, AppOverride>): Set<OwnerKey> =
+    overrides.values.filter { it.hidden }.map { it.key.packageName to it.key.userSerial }.toSet()
+
+internal fun withoutHiddenOwners(shortcuts: List<AppShortcut>, hidden: Set<OwnerKey>): List<AppShortcut> =
+    if (hidden.isEmpty()) shortcuts else shortcuts.filterNot { (it.key.packageName to it.key.userSerial) in hidden }
+
 /**
  * every source runs on the device. each one is isolated so a failure in one, such as revoked
  * contacts access, leaves the others showing.
@@ -50,6 +66,7 @@ class SearchRepository @Inject constructor(
     private val shortcuts: ShortcutsRepository,
     private val apps: AppsRepository,
     private val settingsRepository: SettingsRepository,
+    private val overrides: AppOverridesRepository,
 ) {
     private val contacts = ContactSearch(context)
 
@@ -65,11 +82,15 @@ class SearchRepository @Inject constructor(
             // typing fast should not query contacts for every letter, but clearing must be instant
             query.distinctUntilChanged().debounce { if (it.isBlank()) 0L else DEBOUNCE_MS },
             settingsRepository.settings,
-        ) { q, s -> q to s }
-            .mapLatest { (q, s) -> search(q, s) }
+            // hiding an app mid search must drop its shortcuts at once, not on the next keystroke
+            overrides.overrides.map { hiddenOwners(it) }.distinctUntilChanged(),
+        ) { q, s, hidden -> SearchInput(q, s, hidden) }
+            .mapLatest { search(it.query, it.settings, it.hiddenOwners) }
             .flowOn(Dispatchers.IO)
 
-    private suspend fun search(query: String, settings: LauncherSettings): SearchResults {
+    private class SearchInput(val query: String, val settings: LauncherSettings, val hiddenOwners: Set<OwnerKey>)
+
+    private suspend fun search(query: String, settings: LauncherSettings, hiddenOwners: Set<OwnerKey>): SearchResults {
         if (query.isBlank()) {
             shortcutCache = null
             return SearchResults()
@@ -77,7 +98,7 @@ class SearchRepository @Inject constructor(
         return SearchResults(
             query = query,
             calculation = guarded("calculator") { Calculator.evaluate(query) },
-            shortcuts = if (settings.searchShortcuts) guarded("shortcuts") { searchShortcuts(query) }.orEmpty() else emptyList(),
+            shortcuts = if (settings.searchShortcuts) guarded("shortcuts") { searchShortcuts(query, hiddenOwners) }.orEmpty() else emptyList(),
             contacts = if (settings.searchContacts) guarded("contacts") { contacts.search(query) }.orEmpty() else emptyList(),
             settings = if (settings.searchSettings) {
                 guarded("settings") { SettingsSearch.search(SettingsSearch.resolve(context.resources), query) }.orEmpty()
@@ -87,11 +108,11 @@ class SearchRepository @Inject constructor(
         )
     }
 
-    private suspend fun searchShortcuts(query: String): List<ShortcutHit> {
+    private suspend fun searchShortcuts(query: String, hiddenOwners: Set<OwnerKey>): List<ShortcutHit> {
         val all = shortcutCache ?: shortcuts.allLaunchable().also { shortcutCache = it }
         val installed = apps.apps.value.orEmpty()
         val owners = installed.associateBy { it.key.packageName to it.key.userSerial }
-        val hits = all.map { shortcut ->
+        val hits = withoutHiddenOwners(all, hiddenOwners).map { shortcut ->
             val owner = owners[shortcut.key.packageName to shortcut.key.userSerial]
             ShortcutHit(shortcut, owner?.key, owner?.label)
         }

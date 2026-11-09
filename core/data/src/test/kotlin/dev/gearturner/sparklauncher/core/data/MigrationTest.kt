@@ -98,6 +98,43 @@ class MigrationTest {
         }
     }
 
+    @Test
+    fun version6OverridesSurviveMigrationTo7WithNoSwipes() {
+        helper.createDatabase(DB_NAME, 6).apply {
+            execSQL(
+                "INSERT INTO app_overrides (package_name, class_name, user_serial, hidden, custom_label) " +
+                    "VALUES ('com.bank', 'com.bank.Main', 0, 1, 'Money')",
+            )
+            close()
+        }
+        val migrated = helper.runMigrationsAndValidate(DB_NAME, 7, true)
+        migrated.query("SELECT hidden, custom_label, swipe_up, swipe_down FROM app_overrides").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+            assertEquals("Money", cursor.getString(1))
+            assertTrue(cursor.isNull(2))
+            assertTrue(cursor.isNull(3))
+        }
+    }
+
+    @Test
+    fun version7OverridesSurviveMigrationTo8NotRemovedFromHome() {
+        helper.createDatabase(DB_NAME, 7).apply {
+            execSQL(
+                "INSERT INTO app_overrides (package_name, class_name, user_serial, hidden, custom_label) " +
+                    "VALUES ('com.bank', 'com.bank.Main', 0, 1, 'Money')",
+            )
+            close()
+        }
+        val migrated = helper.runMigrationsAndValidate(DB_NAME, 8, true)
+        migrated.query("SELECT hidden, custom_label, home_removed FROM app_overrides").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(1, cursor.getInt(0))
+            assertEquals("Money", cursor.getString(1))
+            assertEquals(0, cursor.getInt(2))
+        }
+    }
+
     private companion object {
         const val DB_NAME = "migration-test"
     }

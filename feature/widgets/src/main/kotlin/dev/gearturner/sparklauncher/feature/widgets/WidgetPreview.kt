@@ -1,7 +1,10 @@
 package dev.gearturner.sparklauncher.feature.widgets
 
 import android.appwidget.AppWidgetHostView
+import android.content.Context
 import android.os.Build
+import android.view.MotionEvent
+import android.view.View
 import android.widget.RemoteViews
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -46,7 +49,8 @@ fun WidgetPreview(provider: WidgetProvider, fullWidth: Dp, fullHeight: Dp, box: 
         if (layoutId != 0) {
             AndroidView(
                 factory = { context ->
-                    AppWidgetHostView(context).apply {
+                    InertHostView(context).apply {
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                         setAppWidget(NO_WIDGET_ID, provider.info)
                         try {
                             updateAppWidget(RemoteViews(provider.info.provider.packageName, layoutId))
@@ -75,6 +79,16 @@ fun WidgetPreview(provider: WidgetProvider, fullWidth: Dp, fullHeight: Dp, box: 
             }
         }
     }
+}
+
+/**
+ * a preview is only a picture, so its buttons must never fire. intercepting stops every child from
+ * seeing a touch, and not handling it lets the card's own tap and drag gestures still receive it.
+ */
+private class InertHostView(context: Context) : AppWidgetHostView(context) {
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean = true
+
+    override fun onTouchEvent(event: MotionEvent): Boolean = false
 }
 
 @Composable

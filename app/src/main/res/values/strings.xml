@@ -1,12 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Spark Launcher</string>
-    <string name="add_shortcut_title">Add to home screen?</string>
-    <string name="add_shortcut_confirm">Add</string>
+    <string name="add_shortcut_from">From %1$s</string>
+    <string name="add_shortcut_confirm">Add to home screen</string>
     <string name="add_shortcut_cancel">Cancel</string>
     <string name="add_shortcut_added">Added to home screen</string>
     <string name="add_shortcut_already">Already on the home screen</string>
     <string name="add_shortcut_no_space">No room on the home screen</string>
+    <string name="add_shortcut_use_for_swipe">Use as a swipe action instead</string>
+    <string name="add_shortcut_swipe_pick_app">Swipe on which app?</string>
+    <string name="add_shortcut_swipe_pick_direction">Swipe direction for %1$s</string>
+    <string name="add_shortcut_swipe_up">Swipe up</string>
+    <string name="add_shortcut_swipe_down">Swipe down</string>
+    <string name="add_shortcut_swipe_saved">Swipe action saved</string>
     <string name="add_shortcut_failed">Could not add this shortcut</string>
     <string name="accessibility_service_summary">Lets Spark gestures lock the screen and open recents</string>
     <string name="accessibility_service_description">Spark uses this only to lock the screen, show recent apps, and open the notification shade when you use a gesture you set up. It does not read the screen, see what you type, or collect any data. Spark has no internet access.</string>

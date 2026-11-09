@@ -28,6 +28,8 @@ import dev.gearturner.sparklauncher.core.model.IconSource
 import dev.gearturner.sparklauncher.core.model.ItemType
 import dev.gearturner.sparklauncher.core.model.LauncherSettings
 import dev.gearturner.sparklauncher.core.model.ShortcutKey
+import dev.gearturner.sparklauncher.core.model.SwipeDirection
+import dev.gearturner.sparklauncher.core.model.SwipeTarget
 import dev.gearturner.sparklauncher.core.icons.IconPackInfo
 import dev.gearturner.sparklauncher.core.icons.IconPackRepository
 import dev.gearturner.sparklauncher.core.model.CustomIcon
@@ -35,6 +37,10 @@ import dev.gearturner.sparklauncher.core.model.Span
 import dev.gearturner.sparklauncher.core.model.SUBGRID
 import dev.gearturner.sparklauncher.core.model.WidgetOptions
 import dev.gearturner.sparklauncher.core.model.WorkspaceItem
+import dev.gearturner.sparklauncher.core.ui.ShortcutChoices
+import dev.gearturner.sparklauncher.core.ui.SwipeChoice
+import dev.gearturner.sparklauncher.core.ui.resolveSwipe
+import dev.gearturner.sparklauncher.core.ui.splitShortcuts
 import dev.gearturner.sparklauncher.feature.widgets.WidgetBinder
 import dev.gearturner.sparklauncher.feature.widgets.WidgetHostManager
 import dev.gearturner.sparklauncher.feature.widgets.WidgetProvider
@@ -45,6 +51,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -65,6 +72,9 @@ data class HomeCell(
     val shortcut: ShortcutKey? = null,
     /** true when the user renamed this item, which offers a reset in the rename dialog */
     val renamed: Boolean = false,
+    /** only app items have swipe actions, and a target that is gone is left out so the default swipe applies */
+    val swipeUp: SwipeChoice? = null,
+    val swipeDown: SwipeChoice? = null,
 ) : HomeTile {
     val iconSource: IconSource
         get() = shortcut?.let { IconSource.Shortcut(it, app.key) } ?: IconSource.App(app.key)
@@ -99,6 +109,7 @@ sealed interface HomeEvent {
     data class LaunchFailed(val label: String) : HomeEvent
     data class ShortcutAdded(val result: AddResult) : HomeEvent
     data object DropRefused : HomeEvent
+    data object SwipeNotSaved : HomeEvent
 }
 
 @HiltViewModel
@@ -157,6 +168,33 @@ class HomeViewModel @Inject constructor(
         if (result is LaunchResult.Failed) events.trySend(HomeEvent.LaunchFailed(cell.title))
     }
 
+    fun launchSwipe(action: SwipeChoice, request: LaunchRequest) {
+        val result = when (val target = action.target) {
+            is SwipeTarget.App -> apps.launch(target.key, request)
+            is SwipeTarget.Shortcut -> shortcuts.launch(target.key, request)
+        }
+        if (result is LaunchResult.Failed) events.trySend(HomeEvent.LaunchFailed(action.label))
+    }
+
+    /** apps a swipe can open, named the way the user sees them elsewhere; hidden apps are left out */
+    fun swipeApps(): List<AppInfo> = apps.apps.value.orEmpty()
+        .filterNot { latestOverrides[it.key]?.hidden == true }
+        .map { it.copy(label = latestOverrides.labelFor(it.key, it.label)) }
+        .sortedBy { it.label.lowercase() }
+
+    val hasShortcutAccess: Boolean get() = shortcuts.hasHostPermission
+
+    /** app shortcuts and pinned shortcuts in separate groups, with the ones already on home marked */
+    suspend fun swipeShortcuts(): ShortcutChoices =
+        splitShortcuts(shortcuts.allLaunchable(), shortcuts.pinned.value.values, workspace.placedShortcutKeys.first())
+
+    /** a null target clears the swipe; a refused change tells the user instead of looking saved */
+    fun setSwipe(owner: AppKey, direction: SwipeDirection, target: SwipeTarget?) {
+        viewModelScope.launch {
+            if (!shortcutPlacement.bindSwipe(owner, direction, target)) events.trySend(HomeEvent.SwipeNotSaved)
+        }
+    }
+
     fun launchShortcut(shortcut: AppShortcut, request: LaunchRequest) {
         if (shortcuts.launch(shortcut.key, request) is LaunchResult.Failed) {
             events.trySend(HomeEvent.LaunchFailed(shortcut.shortLabel))
@@ -184,9 +222,15 @@ class HomeViewModel @Inject constructor(
     /** places a dragged app inside an open folder; a refused drop is reported like any other */
     fun dropIntoFolder(dragged: Dragged, folderId: Long, rank: Int, onSettled: () -> Unit) {
         viewModelScope.launch {
-            if (!workspace.dropIntoFolder(dragged, folderId, rank)) events.send(HomeEvent.DropRefused)
+            if (workspace.dropIntoFolder(dragged, folderId, rank)) clearHomeRemoved(dragged) else events.send(HomeEvent.DropRefused)
             onSettled()
         }
+    }
+
+    /** an app dragged back onto home is no longer removed, so reinstalling it later puts it back too */
+    private suspend fun clearHomeRemoved(dragged: Dragged) {
+        val key = (dragged as? Dragged.NewApp)?.key ?: return
+        if (latestOverrides[key]?.homeRemoved == true) overrides.setHomeRemoved(key, false)
     }
 
     fun reorderInFolder(itemId: Long, toRank: Int) {
@@ -198,21 +242,36 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
-     * in home only mode every app lives on home, so removing an app hides it instead; otherwise it
-     * would be put straight back. hidden apps still answer search and can be shown again there.
+     * in home only mode every app lives on home, so removing an app marks it removed instead; otherwise
+     * it would be put straight back. unlike a hidden app it still answers search, where its menu can
+     * add it to home again.
      */
     fun remove(itemId: Long) {
         viewModelScope.launch {
             val item = latestItems.firstOrNull { it.id == itemId }
             val app = item?.app
             if (settingsRepository.current().homeMode == HomeMode.HOME_ONLY && item?.type == ItemType.APP && app != null) {
-                overrides.setHidden(app, true)
+                overrides.setHomeRemoved(app, true)
             }
             shortcutPlacement.removeFromHome(itemId)
         }
     }
 
     fun canUninstall(key: AppKey): Boolean = apps.canUninstall(key)
+
+    /**
+     * only on home only mode apps: there the drawer is search only, so without this the one way to hide
+     * an app is to find it in search first. drawer mode already has hide in the drawer menu.
+     */
+    fun canHide(cell: HomeCell): Boolean = cell.shortcut == null && state.value.settings.homeMode == HomeMode.HOME_ONLY
+
+    /** hides first so the home only sync, which re-adds missing apps, never sees the app as missing */
+    fun hide(cell: HomeCell) {
+        viewModelScope.launch {
+            overrides.setHidden(cell.app.key, true)
+            shortcutPlacement.removeFromHome(cell.itemId)
+        }
+    }
 
     fun uninstall(key: AppKey) {
         apps.requestUninstall(key)
@@ -227,7 +286,7 @@ class HomeViewModel @Inject constructor(
             try {
                 val settings = settingsRepository.current()
                 val plan = workspace.drop(dragged, target, settings.homeColumns, settings.homeRows, settings.dockSlots)
-                if (plan == DropPlan.Reject) events.send(HomeEvent.DropRefused)
+                if (plan == DropPlan.Reject) events.send(HomeEvent.DropRefused) else clearHomeRemoved(dragged)
             } finally {
                 onSettled()
             }
@@ -394,7 +453,15 @@ internal fun buildState(
         val info = app?.let(byKey::get) ?: return null
         val appLabel = appOverrides.labelFor(info.key, info.label)
         return when (type) {
-            ItemType.APP -> HomeCell(id, info, customTitle ?: appLabel, placement, renamed = customTitle != null)
+            ItemType.APP -> {
+                val override = appOverrides[info.key]
+                HomeCell(
+                    id, info, customTitle ?: appLabel, placement, renamed = customTitle != null,
+                    // a swipe target that is gone resolves to null, which hands the swipe back to home
+                    swipeUp = resolveSwipe(override?.swipeUp, byKey, appOverrides, pinned),
+                    swipeDown = resolveSwipe(override?.swipeDown, byKey, appOverrides, pinned),
+                )
+            }
             ItemType.SHORTCUT -> {
                 val key = shortcutKey ?: return null
                 val live = pinned?.let { it[key] ?: return null }

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="workspace_remove">Remove</string>
+    <string name="workspace_hide">Hide app</string>
     <string name="workspace_app_info">App info</string>
     <string name="workspace_rename">Rename</string>
     <string name="workspace_change_icon">Change icon</string>
@@ -18,6 +19,10 @@
     <string name="workspace_shortcut_added">Added to home screen</string>
     <string name="workspace_already_added">Already on the home screen</string>
     <string name="workspace_no_space">No room on the home screen</string>
+    <string name="workspace_swipe_actions">Swipe actions</string>
+    <string name="workspace_a11y_swipe_up">Swipe up: %1$s</string>
+    <string name="workspace_a11y_swipe_down">Swipe down: %1$s</string>
+    <string name="workspace_swipe_not_saved">Could not save the swipe action</string>
     <string name="workspace_launch_failed">Could not open %1$s</string>
     <string name="workspace_page_indicator">Page %1$d of %2$d</string>
     <string name="workspace_a11y_home">Home screen</string>
