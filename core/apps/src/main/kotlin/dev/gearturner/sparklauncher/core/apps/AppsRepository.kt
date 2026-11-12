@@ -59,6 +59,9 @@ class AppsRepository @Inject constructor(
     @Volatile
     private var activityIndex: Map<AppKey, LauncherActivityInfo> = emptyMap()
 
+    // declared before [apps], whose reload reads it as soon as the eager collection starts
+    private val pending = PendingChanges()
+
     private val changedPackages = MutableSharedFlow<Set<String>>(extraBufferCapacity = 32)
 
     /** packages whose resources changed, so icon caches can drop stale bitmaps */
@@ -81,7 +84,13 @@ class AppsRepository @Inject constructor(
     /** null until the first load finishes, which lets the ui tell "loading" from "no apps" */
     val apps: StateFlow<List<AppInfo>?> = systemChangeSignals()
         .conflate()
-        .map { loadAll() }
+        .map {
+            // the announcement waits for the fresh index, since listeners read icons from it right away
+            reloadThenAnnounce(pending, ::loadAll) { names ->
+                changedPackages.tryEmit(names)
+                changedShortcuts.tryEmit(Unit)
+            }
+        }
         .flowOn(Dispatchers.IO)
         .stateIn(scope, SharingStarted.Eagerly, null)
 
@@ -206,8 +215,7 @@ class AppsRepository @Inject constructor(
             }
 
             private fun changed(names: Set<String>) {
-                changedPackages.tryEmit(names)
-                changedShortcuts.tryEmit(Unit)
+                pending.add(names)
                 trySend(Unit)
             }
         }

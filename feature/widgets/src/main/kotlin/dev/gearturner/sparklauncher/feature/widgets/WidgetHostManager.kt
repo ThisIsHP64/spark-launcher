@@ -24,7 +24,7 @@ class WidgetHostManager @Inject constructor(
     private val workspace: WorkspaceRepository,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
-    val host = AppWidgetHost(context, HOST_ID)
+    val host: AppWidgetHost = FlushWidgetHost(context, HOST_ID)
     val appWidgetManager: AppWidgetManager = AppWidgetManager.getInstance(context)
 
     /** ids of widgets taken off every layout, so views held for them can be forgotten as well */

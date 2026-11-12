@@ -56,8 +56,6 @@ class WidgetViews(private val context: Context, private val hostManager: WidgetH
         } catch (e: RuntimeException) {
             return null
         }
-        // spark applies its own padding option, so the platform's default inset is cleared
-        view.setPadding(0, 0, 0, 0)
         views[appWidgetId] = view
         return view
     }

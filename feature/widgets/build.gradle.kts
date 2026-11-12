@@ -12,4 +12,5 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
+    testImplementation(libs.robolectric)
 }

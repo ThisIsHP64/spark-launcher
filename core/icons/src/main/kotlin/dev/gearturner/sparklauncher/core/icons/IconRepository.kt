@@ -1,9 +1,11 @@
 package dev.gearturner.sparklauncher.core.icons
 
 import android.content.Context
+import android.content.pm.LauncherActivityInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.os.Process
 import android.util.Log
 import android.util.LruCache
@@ -17,6 +19,7 @@ import dev.gearturner.sparklauncher.core.model.AppKey
 import dev.gearturner.sparklauncher.core.model.AppOverride
 import dev.gearturner.sparklauncher.core.model.IconSource
 import dev.gearturner.sparklauncher.core.model.IconStyle
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +44,9 @@ data class IconRequest(
             is IconSource.Shortcut -> source.key.packageName
         }
 }
+
+/** a rendered icon, and whether it is trustworthy enough to keep for later requests */
+private class Rendered(val bitmap: Bitmap, val cacheable: Boolean = true)
 
 @Singleton
 class IconRepository @Inject constructor(
@@ -97,21 +103,24 @@ class IconRepository @Inject constructor(
     fun cached(request: IconRequest): Bitmap? = cache.get(request)
 
     /** returns null when the app or shortcut vanished, letting callers show a fallback instead of crashing */
-    suspend fun load(request: IconRequest): Bitmap? {
-        cache.get(request)?.let { return it }
-        val bitmap = when (val source = request.source) {
+    suspend fun load(request: IconRequest): Bitmap? = loadRendered(request)?.bitmap
+
+    private suspend fun loadRendered(request: IconRequest): Rendered? {
+        cache.get(request)?.let { return Rendered(it) }
+        val rendered = when (val source = request.source) {
             is IconSource.App -> renderApp(source.key, request)
             is IconSource.Shortcut -> renderShortcut(source, request)
         } ?: return null
-        cache.put(request, bitmap)
-        return bitmap
+        // a bitmap from a failed lookup would otherwise outlive the moment that caused it
+        if (rendered.cacheable) cache.put(request, rendered.bitmap)
+        return rendered
     }
 
     /**
      * picks the icon in order: the user's pick for this app, then the chosen pack's icon, then
      * the pack's frame around the app's own icon, then the app's icon, themed if enabled
      */
-    private suspend fun renderApp(key: AppKey, request: IconRequest): Bitmap? {
+    private suspend fun renderApp(key: AppKey, request: IconRequest): Rendered? {
         val info = apps.activityInfo(key) ?: return null
         val density = density()
         val style = request.style
@@ -121,10 +130,12 @@ class IconRepository @Inject constructor(
         val frame = if (packIcon == null && !style.themed) style.iconPack?.let { packFrame(it, key, density) } else null
         return withContext(Dispatchers.IO) {
             try {
+                var cacheable = true
                 val bitmap = when {
                     packIcon != null -> IconRenderer.renderPackIcon(packIcon, request.sizePx, style)
                     else -> {
                         val drawable = info.getIcon(density) ?: return@withContext null
+                        cacheable = isTrustworthy(info, drawable)
                         if (frame != null) {
                             IconRenderer.renderWithPackFrame(drawable, request.sizePx, style, frame)
                         } else {
@@ -132,13 +143,25 @@ class IconRepository @Inject constructor(
                         }
                     }
                 }
-                if (info.user != Process.myUserHandle()) applyProfileBadge(bitmap, info.user) else bitmap
+                Rendered(if (info.user != Process.myUserHandle()) applyProfileBadge(bitmap, info.user) else bitmap, cacheable)
             } catch (e: RuntimeException) {
                 // a malformed icon resource in one app should only cost that app its icon
                 Log.w(TAG, "icon render failed for ${key.packageName}", e)
                 null
             }
         }
+    }
+
+    /**
+     * false when the icon looks like the result of a failed lookup: info whose apk is gone because
+     * the app was just updated, or the platform's robot standing in for an icon the app declares
+     */
+    private fun isTrustworthy(info: LauncherActivityInfo, drawable: Drawable): Boolean {
+        val apk = info.applicationInfo.sourceDir
+        if (apk != null && !File(apk).exists()) return false
+        if (info.applicationInfo.icon == 0) return true
+        val platformDefault = context.packageManager.defaultActivityIcon.constantState ?: return true
+        return drawable.constantState != platformDefault
     }
 
     /** null when the pack has no styling, in which case uncovered apps keep their normal icon */
@@ -170,7 +193,7 @@ class IconRepository @Inject constructor(
     }
 
     /** shortcut icons carry a small copy of their app's icon so it is clear where they lead */
-    private suspend fun renderShortcut(source: IconSource.Shortcut, request: IconRequest): Bitmap? {
+    private suspend fun renderShortcut(source: IconSource.Shortcut, request: IconRequest): Rendered? {
         val drawable = shortcuts.iconDrawable(source.key, density())
         val owner = source.owner
         val base = withContext(Dispatchers.IO) {
@@ -182,13 +205,13 @@ class IconRepository @Inject constructor(
             }
         }
         // a shortcut without its own icon falls back to the app icon, which is what the app would show
-        if (base == null) return owner?.let { load(IconRequest(it, request.sizePx, request.style)) }
+        if (base == null) return owner?.let { loadRendered(IconRequest(it, request.sizePx, request.style)) }
         val badgeSize = (request.sizePx * SHORTCUT_BADGE_FRACTION).toInt().coerceAtLeast(1)
-        val badge = owner?.let { load(IconRequest(it, badgeSize, request.style)) } ?: return base
+        val badge = owner?.let { loadRendered(IconRequest(it, badgeSize, request.style)) } ?: return Rendered(base)
         // the base bitmap is freshly rendered and not cached yet, so drawing onto it is safe
         val offset = (request.sizePx - badgeSize).toFloat()
-        Canvas(base).drawBitmap(badge, offset, offset, null)
-        return base
+        Canvas(base).drawBitmap(badge.bitmap, offset, offset, null)
+        return Rendered(base, badge.cacheable)
     }
 
     private fun density(): Int = context.resources.displayMetrics.densityDpi
